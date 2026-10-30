@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Ponte - Comunica Acessível</title>
+    <meta name="description" content="Aplicativo de comunicação acessível para estudantes e professores com Falar por mim, Ouvir e legendar, Frases rápidas, Videoaulas em MP3 com PDFs e Soluções de sistema." />
+    <meta property="og:title" content="Ponte - Comunica Acessível" />
+    <meta property="og:description" content="Aplicativo de comunicação acessível para estudantes e professores com Falar por mim, Ouvir e legendar, Frases rápidas, Videoaulas em MP3 com PDFs e Soluções de sistema." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#081026" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Comunica Acessível" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#081026] text-slate-100 antialiased selection:bg-orange-500 selection:text-white">
+    <div id="root"></div>
+    <!-- Boneco 3D do Governo Federal (VLibras Oficial) -->
+    <div vw class="enabled">
+      <div vw-access-button class="active"></div>
+      <div vw-plugin-wrapper>
+        <div class="vw-plugin-top-wrapper"></div>
+      </div>
+    </div>
+    <script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
+    <script>
+      window.addEventListener('DOMContentLoaded', function() {
+        try {
+          if (window.VLibras) {
+            new window.VLibras.Widget('https://vlibras.gov.br/app');
+          }
+        } catch(e) {
+          console.warn('Erro ao inicializar VLibras:', e);
+        }
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-accessible: 'Atkinson Hyperlegible', sans-serif;
+  }
+  
+  body {
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    background-color: #f9f8f6;
+    color: #292524;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Accessibility Themes */
+body.font-accessible {
+  font-family: var(--font-accessible) !important;
+}
+
+/* Strobe visual flash animations */
+@keyframes strobe-flash-red {
+  0%, 100% { background-color: #ef4444; color: #ffffff; }
+  50% { background-color: #ffffff; color: #000000; }
+}
+
+@keyframes strobe-flash-yellow {
+  0%, 100% { background-color: #eab308; color: #000000; }
+  50% { background-color: #000000; color: #ffffff; }
+}
+
+@keyframes strobe-flash-blue {
+  0%, 100% { background-color: #3b82f6; color: #ffffff; }
+  50% { background-color: #ffffff; color: #000000; }
+}
+
+.animate-strobe-red {
+  animation: strobe-flash-red 0.3s ease-in-out infinite;
+}
+
+.animate-strobe-yellow {
+  animation: strobe-flash-yellow 0.35s ease-in-out infinite;
+}
+
+.animate-strobe-blue {
+  animation: strobe-flash-blue 0.35s ease-in-out infinite;
+}
+
+/* Pulsing audio wave bars */
+@keyframes wave-bounce {
+  0%, 100% { height: 6px; }
+  50% { height: 28px; }
+}
+
+.wave-bar-1 { animation: wave-bounce 0.8s ease-in-out infinite 0.1s; }
+.wave-bar-2 { animation: wave-bounce 0.8s ease-in-out infinite 0.25s; }
+.wave-bar-3 { animation: wave-bounce 0.8s ease-in-out infinite 0.4s; }
+.wave-bar-4 { animation: wave-bounce 0.8s ease-in-out infinite 0.15s; }
+.wave-bar-5 { animation: wave-bounce 0.8s ease-in-out infinite 0.35s; }
+
+/* VLibras Widget styling */
+[vw] {
+  z-index: 45 !important;
+}
+
+[vw-access-button] {
+  bottom: 80px !important;
+  right: 12px !important;
+  border-radius: 16px !important;
+  box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.4) !important;
+}
+
+@media (min-width: 768px) {
+  [vw-access-button] {
+    bottom: 30px !important;
+    right: 20px !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ==========================================================================
+   TEMA: AZUL ESCURO COM LARANJA (Dark Blue & Orange Theme)
+   ========================================================================== */
+.theme-azul-laranja {
+  background-color: #081026 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Cards & Containers in Dark Blue */
+.theme-azul-laranja .bg-white {
+  background-color: #0d1938 !important;
+  color: #f1f5f9 !important;
+  border-color: #1e2f5d !important;
+}
+
+.theme-azul-laranja .bg-slate-50,
+.theme-azul-laranja .bg-stone-50 {
+  background-color: #0b1530 !important;
+  color: #f1f5f9 !important;
+  border-color: #1e2f5d !important;
+}
+
+.theme-azul-laranja .bg-slate-100,
+.theme-azul-laranja .bg-stone-100 {
+  background-color: #132247 !important;
+  color: #f1f5f9 !important;
+  border-color: #24396b !important;
+}
+
+.theme-azul-laranja .bg-slate-200,
+.theme-azul-laranja .bg-stone-200 {
+  background-color: #1b2e5c !important;
+  border-color: #2b437e !important;
+}
+
+/* Typography contrast in Dark Blue */
+.theme-azul-laranja .text-black,
+.theme-azul-laranja .text-slate-900,
+.theme-azul-laranja .text-stone-900 {
+  color: #f8fafc !important;
+}
+
+.theme-azul-laranja .text-slate-800,
+.theme-azul-laranja .text-stone-800 {
+  color: #e2e8f0 !important;
+}
+
+.theme-azul-laranja .text-slate-700,
+.theme-azul-laranja .text-stone-700 {
+  color: #cbd5e1 !important;
+}
+
+.theme-azul-laranja .text-slate-600,
+.theme-azul-laranja .text-stone-600 {
+  color: #94a3b8 !important;
+}
+
+.theme-azul-laranja .text-slate-500,
+.theme-azul-laranja .text-stone-500 {
+  color: #64748b !important;
+}
+
+/* Borders in Dark Blue */
+.theme-azul-laranja .border-slate-100,
+.theme-azul-laranja .border-stone-100,
+.theme-azul-laranja .border-slate-200,
+.theme-azul-laranja .border-stone-200,
+.theme-azul-laranja .border-slate-300,
+.theme-azul-laranja .border-stone-300 {
+  border-color: #1c2c54 !important;
+}
+
+/* Orange Highlights & Accents */
+.theme-azul-laranja .border-orange-200,
+.theme-azul-laranja .border-orange-300,
+.theme-azul-laranja .border-orange-400 {
+  border-color: rgba(249, 115, 22, 0.5) !important;
+}
+
+.theme-azul-laranja .bg-orange-300,
+.theme-azul-laranja .bg-orange-400,
+.theme-azul-laranja .bg-orange-500 {
+  background-color: #ea580c !important;
+  color: #ffffff !important;
+  border-color: #f97316 !important;
+}
+
+.theme-azul-laranja .bg-orange-300:hover,
+.theme-azul-laranja .bg-orange-400:hover,
+.theme-azul-laranja .bg-orange-500:hover {
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+}
+
+.theme-azul-laranja .bg-orange-100,
+.theme-azul-laranja .bg-orange-200,
+.theme-azul-laranja .bg-orange-50 {
+  background-color: rgba(234, 88, 12, 0.2) !important;
+  color: #fdba74 !important;
+  border-color: rgba(249, 115, 22, 0.45) !important;
+}
+
+.theme-azul-laranja .text-orange-950,
+.theme-azul-laranja .text-orange-900,
+.theme-azul-laranja .text-orange-800 {
+  color: #fed7aa !important;
+}
+
+/* Inputs & Forms in Dark Blue & Orange */
+.theme-azul-laranja input,
+.theme-azul-laranja textarea,
+.theme-azul-laranja select {
+  background-color: #0b142c !important;
+  color: #f8fafc !important;
+  border-color: #1e315e !important;
+}
+
+.theme-azul-laranja input::placeholder,
+.theme-azul-laranja textarea::placeholder {
+  color: #64748b !important;
+}
+
+.theme-azul-laranja input:focus,
+.theme-azul-laranja textarea:focus {
+  border-color: #f97316 !important;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.35) !important;
+}
+
+/* Scrollbars in Dark Blue & Orange */
+.theme-azul-laranja ::-webkit-scrollbar-track {
+  background: #081026 !important;
+}
+.theme-azul-laranja ::-webkit-scrollbar-thumb {
+  background: #1e315e !important;
+}
+.theme-azul-laranja ::-webkit-scrollbar-thumb:hover {
+  background: #ea580c !important;
+}
+

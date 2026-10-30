@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "users": {
+      "title": "users",
+      "description": "Perfis gerais de usuários do sistema Comunica Acessível",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "email": { "type": "string", "maxLength": 150 },
+        "matricula": { "type": "string", "maxLength": 50 },
+        "role": { "type": "string", "enum": ["aluno", "professor"] },
+        "turmaOuArea": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "professores": {
+      "title": "professores",
+      "description": "Coleção dedicada de docentes autorizados para gestão de aulas e materiais",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "email": { "type": "string", "maxLength": 150 },
+        "matricula": { "type": "string", "maxLength": 50 },
+        "area": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "email", "matricula"]
+    },
+    "alunos": {
+      "title": "alunos",
+      "description": "Coleção dedicada de estudantes matriculados para estudo e resolução de atividades",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "email": { "type": "string", "maxLength": 150 },
+        "matricula": { "type": "string", "maxLength": 50 },
+        "turma": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "email", "matricula"]
+    },
+    "aulas": {
+      "title": "aulas",
+      "description": "Videoaulas e atividades pedagógicas com textos, áudios MP3 e materiais em PDF",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "subject": { "type": "string", "maxLength": 100 },
+        "teacherName": { "type": "string", "maxLength": 150 },
+        "professorId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 50 },
+        "summary": { "type": "string", "maxLength": 2000 },
+        "fullContent": { "type": "string", "maxLength": 50000 },
+        "accessibleTranscript": { "type": "string", "maxLength": 50000 },
+        "videoUrl": { "type": "string", "maxLength": 1000 },
+        "tipo": { "type": "string", "enum": ["aula", "atividade"] },
+        "instructions": { "type": "string", "maxLength": 5000 },
+        "deadline": { "type": "string", "maxLength": 50 },
+        "materialUrl": { "type": "string", "maxLength": 5000000 },
+        "materialName": { "type": "string", "maxLength": 255 },
+        "materialType": { "type": "string", "maxLength": 100 },
+        "materialSize": { "type": "string", "maxLength": 50 },
+        "hasChunks": { "type": "boolean" },
+        "totalChunks": { "type": "number" },
+        "tags": { "type": "array" },
+        "pdfFiles": { "type": "array" },
+        "mp3Lessons": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "title", "subject", "teacherName", "tipo"]
+    },
+    "materialChunks": {
+      "title": "materialChunks",
+      "description": "Fragmentos particionados de arquivos grandes (PDF/MP3) armazenados no Firestore",
+      "type": "object",
+      "properties": {
+        "chunkIndex": { "type": "number" },
+        "totalChunks": { "type": "number" },
+        "data": { "type": "string", "maxLength": 800000 },
+        "type": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["chunkIndex", "totalChunks", "data"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "Perfis gerais dos usuários"
+    },
+    "/professores/{userId}": {
+      "schema": "professores",
+      "description": "Coleção exclusiva de professores com validação de acesso docente"
+    },
+    "/alunos/{userId}": {
+      "schema": "alunos",
+      "description": "Coleção exclusiva de alunos com validação de acesso discente"
+    },
+    "/aulas/{aulaId}": {
+      "schema": "aulas",
+      "description": "Publicações pedagógicas de aulas e atividades com textos e metadados"
+    },
+    "/aulas/{aulaId}/chunks/{chunkId}": {
+      "schema": "materialChunks",
+      "description": "Fragmentos particionados de materiais PDF e áudios MP3 anexados à aula"
+    }
+  }
+}

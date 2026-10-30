@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#06b6d4" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  
+  <!-- Background with rounded squircle safe zone -->
+  <rect width="512" height="512" rx="110" fill="url(#bg)" />
+  
+  <!-- Outer subtle ring -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="url(#primaryGrad)" stroke-width="4" stroke-opacity="0.3" stroke-dasharray="8 8" />
+
+  <!-- Bridge Arch / Connection Arc -->
+  <path d="M 120 340 C 180 230, 332 230, 392 340" fill="none" stroke="url(#accentGrad)" stroke-width="16" stroke-linecap="round" />
+  
+  <!-- Friendly Robot Icon (Center Left) - Novo Modelo -->
+  <g transform="translate(130, 160) scale(1.05)" filter="url(#glow)">
+    <!-- Antenna -->
+    <line x1="60" y1="18" x2="60" y2="35" stroke="#94a3b8" stroke-width="4.5" stroke-linecap="round" />
+    <circle cx="60" cy="14" r="8" fill="#f97316" stroke="#ea580c" stroke-width="1.5" />
+    <circle cx="58" cy="12" r="2.5" fill="#ffffff" fill-opacity="0.8" />
+    <!-- Ears / Headphones -->
+    <rect x="8" y="52" width="10" height="24" rx="5" fill="#f97316" stroke="#c2410c" stroke-width="1.5" />
+    <circle cx="13" cy="64" r="2.5" fill="#fed7aa" />
+    <rect x="102" y="52" width="10" height="24" rx="5" fill="#f97316" stroke="#c2410c" stroke-width="1.5" />
+    <circle cx="107" cy="64" r="2.5" fill="#fed7aa" />
+    <!-- Robot Head (Rounded Helmet) -->
+    <rect x="18" y="34" width="84" height="68" rx="28" fill="#f8fafc" stroke="#94a3b8" stroke-width="2" />
+    <!-- Helmet Top Highlight -->
+    <path d="M 32 38 Q 60 34 88 38" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+    <!-- Screen Face Visor -->
+    <rect x="25" y="44" width="70" height="48" rx="16" fill="#0b1329" stroke="#334155" stroke-width="1.5" />
+    <!-- Expressive Digital Eyes -->
+    <rect x="36" y="56" width="12" height="18" rx="6" fill="#38bdf8" />
+    <circle cx="40" cy="60" r="2.5" fill="#ffffff" />
+    <rect x="72" y="56" width="12" height="18" rx="6" fill="#38bdf8" />
+    <circle cx="76" cy="60" r="2.5" fill="#ffffff" />
+    <!-- Smile & Cheeks -->
+    <circle cx="32" cy="74" r="2.5" fill="#f97316" fill-opacity="0.8" />
+    <circle cx="88" cy="74" r="2.5" fill="#f97316" fill-opacity="0.8" />
+    <path d="M 52 76 Q 60 81 68 76" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" fill="none" />
+    <!-- Neck & Tech Collar -->
+    <rect x="46" y="103" width="28" height="7" rx="3" fill="#475569" />
+    <path d="M 32 112 C 32 106, 88 106, 88 112 L 96 132 L 24 132 Z" fill="#1e293b" stroke="#f97316" stroke-width="1.5" />
+    <circle cx="60" cy="122" r="3.5" fill="#f97316" />
+  </g>
+
+  <!-- Speech / Sound Wave & Eye Symbol (Center Right) -->
+  <g transform="translate(290, 175) scale(0.95)" filter="url(#glow)">
+    <!-- Speech bubble shape with sound waves -->
+    <rect x="20" y="30" width="110" height="85" rx="22" fill="#10b981" />
+    <path d="M 45 115 L 35 138 L 65 115 Z" fill="#10b981" />
+    
+    <!-- Sound Waves inside bubble -->
+    <line x1="50" y1="72" x2="50" y2="72" stroke="#ffffff" stroke-width="8" stroke-linecap="round" />
+    <path d="M 66 58 C 72 65, 72 80, 66 87" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+    <path d="M 82 50 C 94 62, 94 88, 82 100" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+    <path d="M 98 42 C 116 58, 116 92, 98 108" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+  </g>
+
+  <!-- Sparkles / Access icons -->
+  <circle cx="256" cy="115" r="14" fill="#fbbf24" filter="url(#glow)" />
+  <circle cx="120" cy="220" r="7" fill="#38bdf8" />
+  <circle cx="395" cy="220" r="7" fill="#34d399" />
+  
+  <!-- App Label "PONTE" -->
+  <text x="256" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="44" font-weight="900" fill="#f8fafc" text-anchor="middle" letter-spacing="6">PONTE</text>
+  <text x="256" y="455" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="600" fill="#94a3b8" text-anchor="middle" letter-spacing="3">COMUNICA ACESSÍVEL</text>
+</svg>

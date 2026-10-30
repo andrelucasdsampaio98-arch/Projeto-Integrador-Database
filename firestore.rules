@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection testing endpoint
+    match /test/{docId} {
+      allow get: if true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'role']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 150 &&
+             (data.role == 'aluno' || data.role == 'professor');
+    }
+
+    function isValidAula(data) {
+      return data.keys().hasAll(['id', 'title', 'subject', 'teacherName', 'tipo']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.subject is string && data.subject.size() > 0 && data.subject.size() <= 100 &&
+             data.teacherName is string && data.teacherName.size() > 0 && data.teacherName.size() <= 150 &&
+             (data.tipo == 'aula' || data.tipo == 'atividade');
+    }
+
+    // Perfis Gerais
+    match /users/{userId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(userId) &&
+                               request.auth.uid == userId &&
+                               isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Coleção exclusiva de Professores
+    match /professores/{userId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // Coleção exclusiva de Alunos
+    match /alunos/{userId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // Publicações Pedagógicas (Videoaulas e Atividades)
+    match /aulas/{aulaId} {
+      allow read, list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(aulaId) && isValidAula(request.resource.data);
+      allow delete: if isSignedIn() && isValidId(aulaId);
+
+      // Particionamento de Arquivos Grandes (PDFs e MP3s)
+      match /chunks/{chunkId} {
+        allow read, list: if isSignedIn();
+        allow create, update, delete: if isSignedIn();
+      }
+    }
+  }
+}
