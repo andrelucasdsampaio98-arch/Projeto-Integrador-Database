@@ -66,7 +66,31 @@ export interface FirestoreErrorInfo {
   };
 }
 
+export function isQuotaExceededError(error: unknown): boolean {
+  if (!error) return false;
+  const anyErr = error as any;
+  if (anyErr?.code === 'resource-exhausted') return true;
+  const str = anyErr?.message ? String(anyErr.message) : String(error);
+  return (
+    str.includes('resource-exhausted') ||
+    str.includes('Quota limit exceeded') ||
+    str.includes('Free daily write units per project') ||
+    str.includes('quota metric')
+  );
+}
+
+// Session flag that indicates if Firestore daily write quota is currently reached
+export let isWriteQuotaExceeded = false;
+export function setWriteQuotaExceeded(val: boolean) {
+  isWriteQuotaExceeded = val;
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  if (isQuotaExceededError(error)) {
+    isWriteQuotaExceeded = true;
+    console.warn(`[Firestore Quota Exceeded]: Limite de cota diária gratuita do Firestore atingido na operação ${operationType} em ${path}. O sistema alternou automaticamente para persistência local.`);
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -93,11 +117,67 @@ export async function testConnection(): Promise<boolean> {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      console.warn("Cota gratuita diária do Firestore atingida para hoje.");
+      return false;
+    }
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Conexão com Firestore offline.");
+      console.warn("Conexão com Firestore offline.");
     }
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// CACHE LOCAL RESILIENTE PARA PERFIS E AULAS
+// ---------------------------------------------------------------------------
+
+export function saveLocalUserProfile(profile: UserAccount): void {
+  try {
+    localStorage.setItem(`ponte_user_${profile.id}`, JSON.stringify(profile));
+    localStorage.setItem('ponte_current_user', JSON.stringify(profile));
+  } catch (e) {
+    console.warn('Erro ao salvar perfil localmente:', e);
+  }
+}
+
+export function loadLocalUserProfile(uid?: string): UserAccount | null {
+  try {
+    if (uid) {
+      const specific = localStorage.getItem(`ponte_user_${uid}`);
+      if (specific) return JSON.parse(specific);
+    }
+    const current = localStorage.getItem('ponte_current_user');
+    if (current) return JSON.parse(current);
+  } catch {}
+  return null;
+}
+
+export function saveLocalLesson(lesson: Lesson): void {
+  try {
+    const raw = localStorage.getItem('ponte_sistema_estudo_aulas');
+    let list: Lesson[] = raw ? JSON.parse(raw) : [];
+    const idx = list.findIndex(l => l.id === lesson.id);
+    if (idx >= 0) {
+      list[idx] = lesson;
+    } else {
+      list = [lesson, ...list];
+    }
+    localStorage.setItem('ponte_sistema_estudo_aulas', JSON.stringify(list));
+  } catch (e) {
+    console.warn('Erro ao salvar aula localmente:', e);
+  }
+}
+
+export function loadLocalAulas(): Lesson[] {
+  try {
+    const raw = localStorage.getItem('ponte_sistema_estudo_aulas');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -137,39 +217,51 @@ export async function firebaseSignUp(params: {
       createdAt: new Date().toISOString().split('T')[0]
     };
 
-    // 1. Salva na coleção geral 'users'
-    try {
-      await setDoc(doc(db, 'users', uid), userProfile);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
-    }
+    // Salva perfil no cache local
+    saveLocalUserProfile(userProfile);
 
-    // 2. Salva na coleção específica (professores ou alunos)
-    if (params.role === 'professor') {
+    // 1. Salva na coleção geral 'users' se a cota não estiver esgotada
+    if (!isWriteQuotaExceeded) {
       try {
-        await setDoc(doc(db, 'professores', uid), {
-          id: uid,
-          name: userProfile.name,
-          email: userProfile.email,
-          matricula: userProfile.matricula,
-          area: userProfile.turmaOuArea || 'Docência Geral',
-          createdAt: userProfile.createdAt
-        });
+        await setDoc(doc(db, 'users', uid), userProfile);
       } catch (err) {
-        console.warn('Erro ao salvar em professores:', err);
+        if (isQuotaExceededError(err)) {
+          isWriteQuotaExceeded = true;
+          console.warn('Cota de gravação do Firestore atingida no cadastro. Usando persistência local.');
+        } else {
+          handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
+        }
       }
-    } else {
-      try {
-        await setDoc(doc(db, 'alunos', uid), {
-          id: uid,
-          name: userProfile.name,
-          email: userProfile.email,
-          matricula: userProfile.matricula,
-          turma: userProfile.turmaOuArea || 'Turma Geral',
-          createdAt: userProfile.createdAt
-        });
-      } catch (err) {
-        console.warn('Erro ao salvar em alunos:', err);
+
+      // 2. Salva na coleção específica (professores ou alunos)
+      if (params.role === 'professor') {
+        try {
+          await setDoc(doc(db, 'professores', uid), {
+            id: uid,
+            name: userProfile.name,
+            email: userProfile.email,
+            matricula: userProfile.matricula,
+            area: userProfile.turmaOuArea || 'Docência Geral',
+            createdAt: userProfile.createdAt
+          });
+        } catch (err) {
+          if (isQuotaExceededError(err)) isWriteQuotaExceeded = true;
+          console.warn('Aviso ao salvar em professores:', err);
+        }
+      } else {
+        try {
+          await setDoc(doc(db, 'alunos', uid), {
+            id: uid,
+            name: userProfile.name,
+            email: userProfile.email,
+            matricula: userProfile.matricula,
+            turma: userProfile.turmaOuArea || 'Turma Geral',
+            createdAt: userProfile.createdAt
+          });
+        } catch (err) {
+          if (isQuotaExceededError(err)) isWriteQuotaExceeded = true;
+          console.warn('Aviso ao salvar em alunos:', err);
+        }
       }
     }
 
@@ -218,39 +310,56 @@ export async function firebaseSignIn(
         profile = snap.data() as UserAccount;
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.GET, `users/${uid}`);
+      if (isQuotaExceededError(err)) {
+        console.warn('Cota de leitura do Firestore atingida, buscando perfil no cache local.');
+        profile = loadLocalUserProfile(uid);
+      } else {
+        handleFirestoreError(err, OperationType.GET, `users/${uid}`);
+      }
     }
 
-    // Se não existia perfil no users, checa coleções específicas
+    // Se não existia perfil no users, checa coleções específicas ou cache local
     if (!profile) {
-      const profSnap = await getDoc(doc(db, 'professores', uid));
-      if (profSnap.exists()) {
-        const pd = profSnap.data();
-        profile = {
-          id: uid,
-          name: pd.name || 'Professor',
-          email: pd.email || cred.user.email || '',
-          matricula: pd.matricula || '',
-          role: 'professor',
-          turmaOuArea: pd.area || '',
-          createdAt: pd.createdAt || new Date().toISOString().split('T')[0]
-        };
-        await setDoc(userDocRef, profile);
-      } else {
-        const aluSnap = await getDoc(doc(db, 'alunos', uid));
-        if (aluSnap.exists()) {
-          const ad = aluSnap.data();
+      profile = loadLocalUserProfile(uid);
+    }
+
+    if (!profile) {
+      try {
+        const profSnap = await getDoc(doc(db, 'professores', uid));
+        if (profSnap.exists()) {
+          const pd = profSnap.data();
           profile = {
             id: uid,
-            name: ad.name || 'Aluno',
-            email: ad.email || cred.user.email || '',
-            matricula: ad.matricula || '',
-            role: 'aluno',
-            turmaOuArea: ad.turma || '',
-            createdAt: ad.createdAt || new Date().toISOString().split('T')[0]
+            name: pd.name || 'Professor',
+            email: pd.email || cred.user.email || '',
+            matricula: pd.matricula || '',
+            role: 'professor',
+            turmaOuArea: pd.area || '',
+            createdAt: pd.createdAt || new Date().toISOString().split('T')[0]
           };
-          await setDoc(userDocRef, profile);
+          if (!isWriteQuotaExceeded) {
+            await setDoc(userDocRef, profile).catch(() => {});
+          }
+        } else {
+          const aluSnap = await getDoc(doc(db, 'alunos', uid));
+          if (aluSnap.exists()) {
+            const ad = aluSnap.data();
+            profile = {
+              id: uid,
+              name: ad.name || 'Aluno',
+              email: ad.email || cred.user.email || '',
+              matricula: ad.matricula || '',
+              role: 'aluno',
+              turmaOuArea: ad.turma || '',
+              createdAt: ad.createdAt || new Date().toISOString().split('T')[0]
+            };
+            if (!isWriteQuotaExceeded) {
+              await setDoc(userDocRef, profile).catch(() => {});
+            }
+          }
         }
+      } catch (e) {
+        console.warn('Aviso ao consultar coleções específicas:', e);
       }
     }
 
@@ -264,8 +373,12 @@ export async function firebaseSignIn(
         role: expectedRole || 'aluno',
         createdAt: new Date().toISOString().split('T')[0]
       };
-      await setDoc(userDocRef, profile);
+      if (!isWriteQuotaExceeded) {
+        await setDoc(userDocRef, profile).catch(() => {});
+      }
     }
+
+    saveLocalUserProfile(profile);
 
     // VALIDAÇÃO ESTRITA DO PAPEL DO USUÁRIO
     if (expectedRole && profile.role !== expectedRole) {
@@ -324,7 +437,15 @@ export async function firebaseSignInWithGoogle(expectedRole?: UserRole): Promise
         profile = snap.data() as UserAccount;
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.GET, `users/${uid}`);
+      if (isQuotaExceededError(err)) {
+        profile = loadLocalUserProfile(uid);
+      } else {
+        handleFirestoreError(err, OperationType.GET, `users/${uid}`);
+      }
+    }
+
+    if (!profile) {
+      profile = loadLocalUserProfile(uid);
     }
 
     if (!profile) {
@@ -336,29 +457,35 @@ export async function firebaseSignInWithGoogle(expectedRole?: UserRole): Promise
         role: expectedRole || 'aluno',
         createdAt: new Date().toISOString().split('T')[0]
       };
-      await setDoc(userDocRef, profile);
+      if (!isWriteQuotaExceeded) {
+        await setDoc(userDocRef, profile).catch(() => {});
 
-      // Registra na coleção específica
-      if (profile.role === 'professor') {
-        await setDoc(doc(db, 'professores', uid), {
-          id: uid,
-          name: profile.name,
-          email: profile.email,
-          matricula: profile.matricula,
-          area: 'Docência',
-          createdAt: profile.createdAt
-        });
-      } else {
-        await setDoc(doc(db, 'alunos', uid), {
-          id: uid,
-          name: profile.name,
-          email: profile.email,
-          matricula: profile.matricula,
-          turma: 'Geral',
-          createdAt: profile.createdAt
-        });
+        // Registra na coleção específica
+        if (profile.role === 'professor') {
+          await setDoc(doc(db, 'professores', uid), {
+            id: uid,
+            name: profile.name,
+            email: profile.email,
+            matricula: profile.matricula,
+            area: 'Docência',
+            createdAt: profile.createdAt
+          }).catch(() => {});
+        } else {
+          await setDoc(doc(db, 'alunos', uid), {
+            id: uid,
+            name: profile.name,
+            email: profile.email,
+            matricula: profile.matricula,
+            turma: 'Geral',
+            createdAt: profile.createdAt
+          }).catch(() => {});
+        }
       }
-    } else if (expectedRole && profile.role !== expectedRole) {
+    }
+
+    saveLocalUserProfile(profile);
+
+    if (expectedRole && profile.role !== expectedRole) {
       await signOut(auth);
       return {
         success: false,
@@ -413,50 +540,147 @@ export async function firebaseGetCurrentUserProfile(): Promise<UserAccount | nul
 // ARMAZENAMENTO DE AULAS, TEXTOS, MP3 E PDFS PARTICIONADOS NO FIRESTORE
 // ---------------------------------------------------------------------------
 
+import { signInAnonymously } from 'firebase/auth';
+
 // Cache em memória para materiais reconstruídos (evita re-download desnecessário)
 const materialBlobsCache = new Map<string, string>();
 
-/**
- * Busca todas as aulas e atividades salvas no Firestore
- */
-export async function firebaseFetchAulas(): Promise<{ success: boolean; data: Lesson[]; error?: string }> {
+// Cache persistente em IndexedDB para grandes arquivos de áudio MP3 e documentos PDF
+const IDB_NAME = 'ponte_media_db';
+const IDB_STORE = 'files_cache';
+
+function openMediaStoreDB(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+          req.result.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function saveMediaCache(key: string, dataUrl: string): Promise<void> {
   try {
+    materialBlobsCache.set(key, dataUrl);
+    const idb = await openMediaStoreDB();
+    if (!idb) return;
+    const tx = idb.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(dataUrl, key);
+  } catch (e) {
+    console.warn('Cache local erro:', e);
+  }
+}
+
+export async function loadMediaCache(key: string): Promise<string | null> {
+  if (materialBlobsCache.has(key)) {
+    return materialBlobsCache.get(key)!;
+  }
+  try {
+    const idb = await openMediaStoreDB();
+    if (!idb) return null;
+    return new Promise((resolve) => {
+      const tx = idb.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => {
+        const val = req.result;
+        if (val) materialBlobsCache.set(key, val);
+        resolve(val || null);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Garante que a sessão do Firebase Auth esteja ativa (anônima se não autenticada)
+ */
+export async function ensureFirebaseAuth(): Promise<void> {
+  if (!auth.currentUser) {
+    try {
+      await signInAnonymously(auth);
+    } catch (e) {
+      console.warn('Sessão anônima não inicializada:', e);
+    }
+  }
+}
+
+// Inicia autenticação em segundo plano para que as requisições ao Firestore nunca fiquem anônimas/bloqueadas
+if (typeof window !== 'undefined') {
+  ensureFirebaseAuth().catch(() => {});
+}
+
+/**
+ * Busca todas as aulas e atividades salvas no Firestore ou no armazenamento local
+ */
+export async function firebaseFetchAulas(): Promise<{ success: boolean; data: Lesson[]; error?: string; isQuotaLimited?: boolean }> {
+  try {
+    const localAulas = loadLocalAulas();
     const path = 'aulas';
     let snap;
     try {
       snap = await getDocs(collection(db, path));
-    } catch (err) {
+    } catch (err: any) {
+      if (isQuotaExceededError(err)) {
+        console.warn('Cota de leitura do Firestore atingida ou indisponível.');
+        return {
+          success: true,
+          data: localAulas,
+          isQuotaLimited: true
+        };
+      }
       handleFirestoreError(err, OperationType.LIST, path);
     }
 
-    const aulas: Lesson[] = [];
-    snap.forEach((d) => {
-      const data = d.data() as Lesson;
-      aulas.push({
-        ...data,
-        id: d.id,
-        isFromFirebase: true
+    const firestoreAulas: Lesson[] = [];
+    if (snap) {
+      snap.forEach((d) => {
+        const data = d.data() as Lesson;
+        firestoreAulas.push({
+          ...data,
+          id: d.id,
+          isFromFirebase: true
+        });
       });
-    });
+    }
+
+    // Merge seguro: preserva aulas salvas localmente caso o Firestore esteja sob limite de cota
+    const mergedMap = new Map<string, Lesson>();
+    localAulas.forEach((l) => mergedMap.set(l.id, l));
+    firestoreAulas.forEach((l) => mergedMap.set(l.id, l));
+
+    const finalAulas = Array.from(mergedMap.values());
+    try {
+      localStorage.setItem('ponte_sistema_estudo_aulas', JSON.stringify(finalAulas));
+    } catch {}
 
     return {
       success: true,
-      data: aulas
+      data: finalAulas
     };
   } catch (err: any) {
     console.error('Erro ao buscar aulas:', err);
     return {
-      success: false,
-      data: [],
+      success: true,
+      data: loadLocalAulas(),
       error: err.message || 'Falha ao buscar aulas'
     };
   }
 }
 
 /**
- * Cria uma nova aula ou atividade
+ * Cria uma nova aula ou atividade com fallback automático caso a cota do Firestore esteja esgotada
  */
-export async function firebaseCreateAula(lesson: Lesson): Promise<{ success: boolean; error?: string }> {
+export async function firebaseCreateAula(lesson: Lesson): Promise<{ success: boolean; isLocalFallback?: boolean; warning?: string; error?: string }> {
   try {
     const aulaId = lesson.id || `aula-${Date.now()}`;
     const cleanLesson: Lesson = {
@@ -471,25 +695,35 @@ export async function firebaseCreateAula(lesson: Lesson): Promise<{ success: boo
     if (!cleanLesson.accessibleTranscript) cleanLesson.accessibleTranscript = '';
     if (!cleanLesson.tags) cleanLesson.tags = [cleanLesson.subject || 'Geral'];
 
-    // Para evitar exceder o limite de 1MB do Firestore no documento da aula:
-    // Se o materialUrl ou pdfFiles/mp3Lessons possuírem dataUrl longo (> 200KB), sanitiza com referência aos chunks
-    const sanitizedPdfFiles = (cleanLesson.pdfFiles || []).map((pdf) => {
+    // Salva localmente de imediato
+    saveLocalLesson(cleanLesson);
+
+    const sanitizedPdfFiles = (cleanLesson.pdfFiles || []).map((pdf, idx) => {
       if (pdf.dataUrl && pdf.dataUrl.startsWith('data:') && pdf.dataUrl.length > 200000) {
+        const ref = `chunks://${cleanLesson.id}/pdf_${idx}`;
+        saveMediaCache(ref, pdf.dataUrl);
+        saveMediaCache(`chunks://${cleanLesson.id}/pdf`, pdf.dataUrl);
         return {
           ...pdf,
-          dataUrl: `chunks://${cleanLesson.id}/pdf`,
-          pathOrUrl: `chunks://${cleanLesson.id}/pdf`
+          dataUrl: ref,
+          pathOrUrl: ref
         };
       }
       return pdf;
     });
 
-    const sanitizedMp3Lessons = (cleanLesson.mp3Lessons || []).map((mp3) => {
-      if (mp3.dataUrl && mp3.dataUrl.startsWith('data:') && mp3.dataUrl.length > 200000) {
-        return {
-          ...mp3,
-          dataUrl: `chunks://${cleanLesson.id}/audio`
-        };
+    const sanitizedMp3Lessons = (cleanLesson.mp3Lessons || []).map((mp3, idx) => {
+      if (mp3.dataUrl && mp3.dataUrl.startsWith('data:')) {
+        const ref = `chunks://${cleanLesson.id}/audio_${idx}`;
+        saveMediaCache(ref, mp3.dataUrl);
+        saveMediaCache(`chunks://${cleanLesson.id}/audio`, mp3.dataUrl);
+        if (mp3.fileName) saveMediaCache(mp3.fileName, mp3.dataUrl);
+        if (mp3.dataUrl.length > 200000) {
+          return {
+            ...mp3,
+            dataUrl: ref
+          };
+        }
       }
       return mp3;
     });
@@ -501,13 +735,32 @@ export async function firebaseCreateAula(lesson: Lesson): Promise<{ success: boo
     };
 
     if (docData.materialUrl && docData.materialUrl.startsWith('data:') && docData.materialUrl.length > 200000) {
+      saveMediaCache(`chunks://${cleanLesson.id}/pdf`, docData.materialUrl);
       docData.materialUrl = `chunks://${cleanLesson.id}/pdf`;
+    }
+
+    // Se a cota diária de gravação já estiver excedida, evita chamadas ao backend para não gerar backoff delay
+    if (isWriteQuotaExceeded) {
+      return { 
+        success: true, 
+        isLocalFallback: true, 
+        warning: 'Cota diária gratuita do Firestore atingida. A aula foi salva no dispositivo e sincronizará quando a cota resetar.' 
+      };
     }
 
     const docPath = `aulas/${aulaId}`;
     try {
       await setDoc(doc(db, 'aulas', aulaId), docData);
-    } catch (err) {
+    } catch (err: any) {
+      if (isQuotaExceededError(err)) {
+        isWriteQuotaExceeded = true;
+        console.warn('Firestore write quota exceeded ao criar aula, utilizando persistência local.');
+        return { 
+          success: true, 
+          isLocalFallback: true, 
+          warning: 'Cota diária gratuita do Firestore atingida. A aula foi salva no dispositivo e sincronizarará quando a cota resetar.' 
+        };
+      }
       handleFirestoreError(err, OperationType.WRITE, docPath);
     }
 
@@ -524,27 +777,46 @@ export async function firebaseCreateAula(lesson: Lesson): Promise<{ success: boo
 /**
  * Atualiza uma aula existente
  */
-export async function firebaseUpdateAula(lesson: Lesson): Promise<{ success: boolean; error?: string }> {
+export async function firebaseUpdateAula(lesson: Lesson): Promise<{ success: boolean; isLocalFallback?: boolean; warning?: string; error?: string }> {
   try {
+    saveLocalLesson(lesson);
+
+    if (isWriteQuotaExceeded) {
+      return { 
+        success: true, 
+        isLocalFallback: true, 
+        warning: 'Cota diária gratuita do Firestore atingida. Alterações salvas no dispositivo.' 
+      };
+    }
+
     const docPath = `aulas/${lesson.id}`;
 
-    const sanitizedPdfFiles = (lesson.pdfFiles || []).map((pdf) => {
+    const sanitizedPdfFiles = (lesson.pdfFiles || []).map((pdf, idx) => {
       if (pdf.dataUrl && pdf.dataUrl.startsWith('data:') && pdf.dataUrl.length > 200000) {
+        const ref = `chunks://${lesson.id}/pdf_${idx}`;
+        saveMediaCache(ref, pdf.dataUrl);
+        saveMediaCache(`chunks://${lesson.id}/pdf`, pdf.dataUrl);
         return {
           ...pdf,
-          dataUrl: `chunks://${lesson.id}/pdf`,
-          pathOrUrl: `chunks://${lesson.id}/pdf`
+          dataUrl: ref,
+          pathOrUrl: ref
         };
       }
       return pdf;
     });
 
-    const sanitizedMp3Lessons = (lesson.mp3Lessons || []).map((mp3) => {
-      if (mp3.dataUrl && mp3.dataUrl.startsWith('data:') && mp3.dataUrl.length > 200000) {
-        return {
-          ...mp3,
-          dataUrl: `chunks://${lesson.id}/audio`
-        };
+    const sanitizedMp3Lessons = (lesson.mp3Lessons || []).map((mp3, idx) => {
+      if (mp3.dataUrl && mp3.dataUrl.startsWith('data:')) {
+        const ref = `chunks://${lesson.id}/audio_${idx}`;
+        saveMediaCache(ref, mp3.dataUrl);
+        saveMediaCache(`chunks://${lesson.id}/audio`, mp3.dataUrl);
+        if (mp3.fileName) saveMediaCache(mp3.fileName, mp3.dataUrl);
+        if (mp3.dataUrl.length > 200000) {
+          return {
+            ...mp3,
+            dataUrl: ref
+          };
+        }
       }
       return mp3;
     });
@@ -556,12 +828,22 @@ export async function firebaseUpdateAula(lesson: Lesson): Promise<{ success: boo
       isFromFirebase: true
     };
     if (docData.materialUrl && docData.materialUrl.startsWith('data:') && docData.materialUrl.length > 200000) {
+      saveMediaCache(`chunks://${lesson.id}/pdf`, docData.materialUrl);
       docData.materialUrl = `chunks://${lesson.id}/pdf`;
     }
 
     try {
       await updateDoc(doc(db, 'aulas', lesson.id), docData);
-    } catch (err) {
+    } catch (err: any) {
+      if (isQuotaExceededError(err)) {
+        isWriteQuotaExceeded = true;
+        console.warn('Firestore write quota exceeded ao atualizar aula, alterações salvas localmente.');
+        return { 
+          success: true, 
+          isLocalFallback: true, 
+          warning: 'Cota diária gratuita do Firestore atingida. Alterações salvas no dispositivo.' 
+        };
+      }
       handleFirestoreError(err, OperationType.UPDATE, docPath);
     }
 
@@ -580,6 +862,19 @@ export async function firebaseUpdateAula(lesson: Lesson): Promise<{ success: boo
  */
 export async function firebaseDeleteAula(id: string): Promise<{ success: boolean; error?: string }> {
   try {
+    // Remove localmente primeiro
+    try {
+      const local = loadLocalAulas();
+      const filtered = local.filter((l) => l.id !== id);
+      localStorage.setItem('ponte_sistema_estudo_aulas', JSON.stringify(filtered));
+    } catch {}
+
+    materialBlobsCache.delete(id);
+
+    if (isWriteQuotaExceeded) {
+      return { success: true };
+    }
+
     const docPath = `aulas/${id}`;
     
     // Tenta remover os chunks da subcoleção se houver
@@ -596,11 +891,14 @@ export async function firebaseDeleteAula(id: string): Promise<{ success: boolean
 
     try {
       await deleteDoc(doc(db, 'aulas', id));
-    } catch (err) {
+    } catch (err: any) {
+      if (isQuotaExceededError(err)) {
+        isWriteQuotaExceeded = true;
+        return { success: true };
+      }
       handleFirestoreError(err, OperationType.DELETE, docPath);
     }
 
-    materialBlobsCache.delete(id);
     return { success: true };
   } catch (err: any) {
     console.error('Erro ao excluir aula:', err);
@@ -614,75 +912,87 @@ export async function firebaseDeleteAula(id: string): Promise<{ success: boolean
 /**
  * Upload seguro de materiais em PDF e Áudio MP3:
  * 1. Converte o arquivo para Data URL de imediato (sem travamento no navegador).
- * 2. Se o arquivo for maior que 300KB, particiona em fragmentos menores salvos
- *    na subcoleção 'aulas/{aulaId}/chunks/{prefix}_chunk_{index}' do Firestore com upload concorrente.
- * 3. Garante que PDF e Áudio MP3 da mesma aula não colidam e salva no cache em memória.
+ * 2. Salva imediatamente no IndexedDB e no cache em memória.
+ * 3. Se a cota permitir e o arquivo for leve, particiona em fragmentos menores no Firestore.
  */
 export async function firebaseSaveAulaMaterialChunks(
   aulaId: string,
   file: File,
   folder: 'pdf' | 'audio',
-  onProgress?: (progressPct: number) => void
-): Promise<{ success: boolean; materialUrl?: string; error?: string }> {
+  onProgress?: (progressPct: number) => void,
+  customPrefix?: string
+): Promise<{ success: boolean; materialUrl?: string; dataUrl?: string; error?: string }> {
   try {
     if (onProgress) onProgress(15);
 
-    // Leitura rápida do arquivo em base64
+    // Leitura rápida do arquivo em base64 DataURL
     const dataUrl = await fileToDataUrl(file);
-    if (onProgress) onProgress(35);
+    if (onProgress) onProgress(45);
 
-    const prefix = folder === 'audio' ? 'audio' : 'pdf';
+    const prefix = customPrefix || (folder === 'audio' ? 'audio' : 'pdf');
     const referenceUrl = `chunks://${aulaId}/${prefix}`;
 
-    // Salva no cache local para exibição e reprodução imediata
-    materialBlobsCache.set(referenceUrl, dataUrl);
-    materialBlobsCache.set(`${aulaId}/${prefix}`, dataUrl);
-    materialBlobsCache.set(aulaId, dataUrl);
+    // Salva no cache local de memória e no IndexedDB imediatamente para nunca falhar reprodução
+    await saveMediaCache(referenceUrl, dataUrl);
+    await saveMediaCache(`${aulaId}/${prefix}`, dataUrl);
+    await saveMediaCache(aulaId, dataUrl);
+    await saveMediaCache(file.name, dataUrl);
 
-    // Se o arquivo for pequeno (< 200KB) e não colidir com o limite de 1MB, podemos retornar direto
-    const CHUNK_CHAR_LIMIT = 300000; // ~225KB por chunk para segurança máxima
-    if (dataUrl.length <= CHUNK_CHAR_LIMIT) {
+    if (onProgress) onProgress(75);
+
+    // Se a cota de gravação estiver excedida ou se o arquivo for volumoso (>600KB),
+    // NÃO gera dezenas de escritas no Firestore, evitando esgotar a cota gratuita diária de 20.000 gravações
+    if (isWriteQuotaExceeded || dataUrl.length > 600000) {
       if (onProgress) onProgress(100);
       return {
         success: true,
-        materialUrl: dataUrl
+        materialUrl: referenceUrl,
+        dataUrl
       };
     }
 
-    // Para arquivos maiores (PDFs ou MP3s): particiona em sub-documentos com prefixo
-    const totalChunks = Math.ceil(dataUrl.length / CHUNK_CHAR_LIMIT);
-    const chunksCollRef = collection(db, 'aulas', aulaId, 'chunks');
+    try {
+      const CHUNK_CHAR_LIMIT = 500000;
+      const totalChunks = Math.ceil(dataUrl.length / CHUNK_CHAR_LIMIT);
+      const chunksCollRef = collection(db, 'aulas', aulaId, 'chunks');
 
-    // Executa o envio em lotes de 4 chunks concorrentes para velocidade e estabilidade
-    const BATCH_SIZE = 4;
-    for (let b = 0; b < totalChunks; b += BATCH_SIZE) {
-      const batchPromises: Promise<any>[] = [];
-      const endBatch = Math.min(b + BATCH_SIZE, totalChunks);
+      const BATCH_SIZE = 4;
+      for (let b = 0; b < totalChunks; b += BATCH_SIZE) {
+        const batchPromises: Promise<any>[] = [];
+        const endBatch = Math.min(b + BATCH_SIZE, totalChunks);
 
-      for (let i = b; i < endBatch; i++) {
-        const start = i * CHUNK_CHAR_LIMIT;
-        const end = Math.min(start + CHUNK_CHAR_LIMIT, dataUrl.length);
-        const chunkData = dataUrl.substring(start, end);
+        for (let i = b; i < endBatch; i++) {
+          const start = i * CHUNK_CHAR_LIMIT;
+          const end = Math.min(start + CHUNK_CHAR_LIMIT, dataUrl.length);
+          const chunkData = dataUrl.substring(start, end);
 
-        const chunkDocRef = doc(chunksCollRef, `${prefix}_chunk_${String(i).padStart(3, '0')}`);
-        batchPromises.push(
-          setDoc(chunkDocRef, {
-            prefix,
-            chunkIndex: i,
-            totalChunks,
-            data: chunkData,
-            type: folder,
-            fileName: file.name,
-            mimeType: file.type || (folder === 'pdf' ? 'application/pdf' : 'audio/mpeg')
-          })
-        );
+          const chunkDocRef = doc(chunksCollRef, `${prefix}_chunk_${String(i).padStart(3, '0')}`);
+          batchPromises.push(
+            setDoc(chunkDocRef, {
+              prefix,
+              chunkIndex: i,
+              totalChunks,
+              data: chunkData,
+              type: folder,
+              fileName: file.name,
+              mimeType: file.type || (folder === 'pdf' ? 'application/pdf' : 'audio/mpeg')
+            })
+          );
+        }
+
+        await Promise.all(batchPromises);
+
+        if (onProgress) {
+          const pct = Math.min(98, Math.round(75 + (endBatch / totalChunks) * 23));
+          onProgress(pct);
+        }
       }
-
-      await Promise.all(batchPromises);
-
-      if (onProgress) {
-        const pct = Math.min(95, Math.round(35 + (endBatch / totalChunks) * 60));
-        onProgress(pct);
+    } catch (writeErr: any) {
+      if (isQuotaExceededError(writeErr)) {
+        isWriteQuotaExceeded = true;
+        console.warn('Firestore write quota exceeded durante upload de chunks, utilizando cache IndexedDB.');
+      } else {
+        console.warn('Aviso durante particionamento:', writeErr);
       }
     }
 
@@ -690,21 +1000,22 @@ export async function firebaseSaveAulaMaterialChunks(
 
     return {
       success: true,
-      materialUrl: referenceUrl
+      materialUrl: referenceUrl,
+      dataUrl
     };
   } catch (err: any) {
-    console.error('Erro ao particionar arquivo no Firestore:', err);
-    // Em caso de falha de rede ao particionar, mantém o dataUrl localmente no cache
+    console.warn('Aviso ao particionar, preservando cache local:', err);
     try {
       const dataUrl = await fileToDataUrl(file);
-      const prefix = folder === 'audio' ? 'audio' : 'pdf';
+      const prefix = customPrefix || (folder === 'audio' ? 'audio' : 'pdf');
       const referenceUrl = `chunks://${aulaId}/${prefix}`;
-      materialBlobsCache.set(referenceUrl, dataUrl);
-      materialBlobsCache.set(aulaId, dataUrl);
+      await saveMediaCache(referenceUrl, dataUrl);
+      await saveMediaCache(file.name, dataUrl);
       if (onProgress) onProgress(100);
       return {
         success: true,
-        materialUrl: dataUrl
+        materialUrl: referenceUrl,
+        dataUrl
       };
     } catch (e: any) {
       return {
@@ -716,7 +1027,7 @@ export async function firebaseSaveAulaMaterialChunks(
 }
 
 /**
- * Reconstrói um arquivo particionado em chunks no Firestore e retorna uma URL utilizável (Blob URL ou DataURL)
+ * Reconstrói um arquivo particionado em chunks no Firestore e retorna uma URL utilizável (DataURL ou Blob URL)
  */
 export async function firebaseLoadAulaMaterialUrl(
   aulaId: string, 
@@ -725,13 +1036,12 @@ export async function firebaseLoadAulaMaterialUrl(
   const searchKey = rawUrl || aulaId;
   if (!searchKey) return null;
 
-  // 1. Se já temos em cache de memória
-  if (materialBlobsCache.has(searchKey)) {
-    return materialBlobsCache.get(searchKey)!;
-  }
-  if (materialBlobsCache.has(aulaId)) {
-    return materialBlobsCache.get(aulaId)!;
-  }
+  // 1. Se já temos em cache de memória ou IndexedDB
+  const cached = await loadMediaCache(searchKey);
+  if (cached) return cached;
+
+  const cachedByAula = await loadMediaCache(aulaId);
+  if (cachedByAula) return cachedByAula;
 
   // 2. Se é uma URL HTTP/HTTPS ou DataURL ou BlobURL normal
   if (
@@ -740,7 +1050,7 @@ export async function firebaseLoadAulaMaterialUrl(
     searchKey.startsWith('data:') ||
     searchKey.startsWith('blob:')
   ) {
-    materialBlobsCache.set(searchKey, searchKey);
+    await saveMediaCache(searchKey, searchKey);
     return searchKey;
   }
 
@@ -758,6 +1068,12 @@ export async function firebaseLoadAulaMaterialUrl(
       cleanId = parts[0];
       targetPrefix = parts[1];
     }
+  }
+
+  // Se houver no cache com a chave limpa
+  if (targetPrefix) {
+    const cachedCombined = await loadMediaCache(`${cleanId}/${targetPrefix}`);
+    if (cachedCombined) return cachedCombined;
   }
 
   // 4. Busca os fragmentos no Firestore
@@ -809,7 +1125,19 @@ export async function firebaseLoadAulaMaterialUrl(
       return null;
     }
 
-    // Tenta converter em Blob URL nativo para navegação e streaming de áudio sem limites
+    // Salva no IndexedDB imediatamente para uso futuro instantâneo
+    await saveMediaCache(searchKey, fullDataUrl);
+    await saveMediaCache(cleanId, fullDataUrl);
+    if (targetPrefix) {
+      await saveMediaCache(`${cleanId}/${targetPrefix}`, fullDataUrl);
+    }
+
+    // Se for áudio, retorna o dataURL diretamente para o elemento <audio> tocar nativamente
+    if (targetPrefix?.includes('audio') || fullDataUrl.startsWith('data:audio/')) {
+      return fullDataUrl;
+    }
+
+    // Para PDFs e outros documentos, cria o Blob URL
     try {
       const blob = dataUrlToBlob(fullDataUrl);
       const blobUrl = URL.createObjectURL(blob);
@@ -817,7 +1145,6 @@ export async function firebaseLoadAulaMaterialUrl(
       materialBlobsCache.set(cleanId, blobUrl);
       return blobUrl;
     } catch {
-      materialBlobsCache.set(searchKey, fullDataUrl);
       return fullDataUrl;
     }
   } catch (err) {

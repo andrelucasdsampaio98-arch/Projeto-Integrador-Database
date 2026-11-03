@@ -30,7 +30,8 @@ import {
   firebaseSaveAulaMaterialChunks, 
   firebaseOpenOrDownloadMaterial, 
   isMaterialFileAllowed, 
-  getMaterialCategory 
+  getMaterialCategory,
+  fileToDataUrl
 } from '../lib/firebase';
 
 interface TeacherLessonModalProps {
@@ -87,6 +88,7 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [isUploadingMp3, setIsUploadingMp3] = useState(false);
+  const [uploadProgressMp3, setUploadProgressMp3] = useState<number | null>(null);
   const [isUploadingToFirebase, setIsUploadingToFirebase] = useState(false);
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -140,12 +142,9 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
   };
 
   // ==================== MP3 UPLOAD & RECORDING ====================
-  const handleMp3FileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMp3FileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
-    setIsUploadingMp3(true);
-    setUploadError(null);
 
     const file = files[0];
     const validAudio = file.type.startsWith('audio/') || 
@@ -156,28 +155,47 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
 
     if (!validAudio) {
       setUploadError('Por favor, selecione um arquivo de áudio válido (.mp3, .wav, .m4a, .ogg).');
-      setIsUploadingMp3(false);
       return;
     }
 
     if (file.size > 50 * 1024 * 1024) {
       setUploadError('O arquivo de áudio excede o limite recomendado de 50MB.');
-      setIsUploadingMp3(false);
       return;
     }
+
+    setIsUploadingMp3(true);
+    setUploadProgressMp3(10);
+    setUploadError(null);
+    setUploadSuccessMessage(null);
 
     const sizeFormatted = 
       file.size > 1024 * 1024 
         ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
         : `${Math.round(file.size / 1024)} KB`;
 
-    const targetId = lessonToEdit?.id || currentAulaId;
-    firebaseSaveAulaMaterialChunks(targetId, file, 'audio').then((storageResult) => {
+    try {
+      const targetId = lessonToEdit?.id || currentAulaId;
+      // Leitura imediata em base64 DataURL para reprodução instantânea
+      const fileDataUrl = await fileToDataUrl(file);
+      setUploadProgressMp3(35);
+
+      const audioKey = `audio_${Date.now()}`;
+
+      // Upload particionado em segundo plano com indicador de progresso
+      await firebaseSaveAulaMaterialChunks(
+        targetId,
+        file,
+        'audio',
+        (pct) => setUploadProgressMp3(pct),
+        audioKey
+      );
+
       const newMp3: LessonMp3Video = {
         id: 'mp3-' + Date.now(),
         title: `Videoaula MP3: ${file.name.replace(/\.[^/.]+$/, '')}`,
         fileName: file.name,
-        dataUrl: storageResult.materialUrl || `chunks://${targetId}/audio`,
+        // Mantém o fileDataUrl para tocar imediatamente no navegador
+        dataUrl: fileDataUrl,
         durationFormatted: 'Duração sob demanda',
         fileSizeFormatted: sizeFormatted,
         uploadedAt: new Date().toLocaleDateString('pt-BR'),
@@ -186,15 +204,19 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
       };
 
       setMp3Lessons((prev) => [...prev, newMp3]);
+      setUploadProgressMp3(100);
+      setUploadSuccessMessage(`Áudio "${file.name}" carregado com sucesso e pronto para reprodução!`);
+      setTimeout(() => setUploadProgressMp3(null), 2500);
+    } catch (err: any) {
+      console.warn('Erro ao processar MP3:', err);
+      setUploadError('Erro ao gravar arquivo de áudio: ' + (err.message || 'Falha ao processar arquivo'));
+      setUploadProgressMp3(null);
+    } finally {
       setIsUploadingMp3(false);
       if (mp3InputRef.current) {
         mp3InputRef.current.value = '';
       }
-    }).catch((err) => {
-      console.warn('Erro ao processar MP3:', err);
-      setUploadError('Erro ao gravar arquivo de áudio.');
-      setIsUploadingMp3(false);
-    });
+    }
   };
 
   // Start Live Audio Recording
@@ -795,6 +817,29 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
               className="hidden"
             />
 
+            {/* Barra de Progresso do Envio do MP3 */}
+            {uploadProgressMp3 !== null && (
+              <div className="p-4 rounded-2xl bg-orange-50 border border-orange-200 space-y-2.5 animate-in fade-in">
+                <div className="flex items-center justify-between text-xs font-black text-stone-900">
+                  <span className="flex items-center gap-2">
+                    <FileAudio className="h-4 w-4 animate-bounce text-orange-600" />
+                    Enviando e gravando áudio no Firebase...
+                  </span>
+                  <span className="font-mono font-black text-sm text-stone-900">{uploadProgressMp3}%</span>
+                </div>
+                <div className="w-full bg-orange-200/70 h-3 rounded-full overflow-hidden p-0.5">
+                  <div 
+                    className="bg-orange-500 h-full rounded-full transition-all duration-200"
+                    style={{ width: `${uploadProgressMp3}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-stone-700 font-semibold">
+                  <span>Destino: Firestore + Cache Local</span>
+                  <span>{uploadProgressMp3 === 100 ? 'Áudio pronto ✓' : 'Processando fragmentos...'}</span>
+                </div>
+              </div>
+            )}
+
             {/* List of Attached MP3s */}
             {mp3Lessons.length === 0 ? (
               <div 
@@ -812,43 +857,53 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
                 {mp3Lessons.map((mp3) => (
                   <div
                     key={mp3.id}
-                    className="flex flex-wrap items-center justify-between p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs gap-3"
+                    className="flex flex-col p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs gap-2.5"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-black text-white font-black">
-                        <FileAudio className="h-5 w-5 text-white" />
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-black text-white font-black">
+                          <FileAudio className="h-5 w-5 text-white" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-black truncate">
+                            {mp3.title}
+                          </p>
+                          <p className="text-xs text-slate-500 font-medium">
+                            {mp3.fileName} &bull; {mp3.fileSizeFormatted} &bull; {mp3.durationFormatted}
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-black text-black truncate">
-                          {mp3.title}
-                        </p>
-                        <p className="text-xs text-slate-500 font-medium">
-                          {mp3.fileName} &bull; {mp3.fileSizeFormatted} &bull; {mp3.durationFormatted}
-                        </p>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Trigger VLibras for this MP3 */}
+                        <button
+                          type="button"
+                          onClick={() => handleTriggerVLibras(mp3.transcript)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black text-white hover:bg-slate-800 text-xs font-bold transition"
+                          title="Traduzir o áudio com o Boneco do VLibras"
+                        >
+                          <Bot className="h-3.5 w-3.5" />
+                          <span>Ver no VLibras</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMp3(mp3.id)}
+                          className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition"
+                          title="Remover esta videoaula em áudio"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {/* Trigger VLibras for this MP3 */}
-                      <button
-                        type="button"
-                        onClick={() => handleTriggerVLibras(mp3.transcript)}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black text-white hover:bg-slate-800 text-xs font-bold transition"
-                        title="Traduzir o áudio com o Boneco do VLibras"
-                      >
-                        <Bot className="h-3.5 w-3.5" />
-                        <span>Ver no VLibras</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveMp3(mp3.id)}
-                        className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition"
-                        title="Remover esta videoaula em áudio"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+                    {/* Audio Preview Player for Teacher */}
+                    {mp3.dataUrl && !mp3.dataUrl.startsWith('chunks://') && (
+                      <div className="w-full pt-1.5 border-t border-slate-100 flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Testar Áudio:</span>
+                        <audio controls src={mp3.dataUrl} className="w-full h-7 rounded-lg" preload="metadata" />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1021,7 +1076,7 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
             )}
           </div>
 
-          {/* Section 4: Tags e Vídeo Externo */}
+          {/* Section 4: Tags e Conteúdo Complementar */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
             <div className="space-y-1.5">
               <label className="text-xs font-extrabold uppercase tracking-wider text-black">
@@ -1038,13 +1093,13 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
 
             <div className="space-y-1.5">
               <label className="text-xs font-extrabold uppercase tracking-wider text-black">
-                Link de Vídeo Complementar (Opcional)
+                Conteúdo Complementar (Vídeo, Artigo ou Material Externo)
               </label>
               <input
                 type="url"
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
-                placeholder="Ex: https://youtube.com/watch?v=..."
+                placeholder="Ex: https://youtube.com/watch?v=... ou link externo"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 text-black text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-black"
               />
             </div>

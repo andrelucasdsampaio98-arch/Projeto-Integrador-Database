@@ -38,12 +38,13 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const [vlibrasNotice, setVlibrasNotice] = useState(false);
   const [selectedSentence, setSelectedSentence] = useState<string | null>(null);
-  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>(mp3Lesson.dataUrl || '');
+  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>(() => {
+    return mp3Lesson.dataUrl && !mp3Lesson.dataUrl.startsWith('chunks://') ? mp3Lesson.dataUrl : '';
+  });
   const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   useEffect(() => {
     let isCurrent = true;
-    let localBlobUrl: string | null = null;
     setPlaybackError(null);
 
     const resolveAudio = async () => {
@@ -51,28 +52,10 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
       if (!source) return;
 
       if (source.startsWith('chunks://')) {
-        const aulaId = source.replace('chunks://', '');
-        const loaded = await firebaseLoadAulaMaterialUrl(aulaId, source);
+        const cleanId = source.replace('chunks://', '');
+        const loaded = await firebaseLoadAulaMaterialUrl(cleanId, source);
         if (isCurrent && loaded) {
-          if (loaded.startsWith('data:')) {
-            try {
-              const b = dataUrlToBlob(loaded);
-              localBlobUrl = URL.createObjectURL(b);
-              setResolvedAudioUrl(localBlobUrl);
-            } catch {
-              setResolvedAudioUrl(loaded);
-            }
-          } else {
-            setResolvedAudioUrl(loaded);
-          }
-        }
-      } else if (source.startsWith('data:')) {
-        try {
-          const b = dataUrlToBlob(source);
-          localBlobUrl = URL.createObjectURL(b);
-          setResolvedAudioUrl(localBlobUrl);
-        } catch {
-          setResolvedAudioUrl(source);
+          setResolvedAudioUrl(loaded);
         }
       } else {
         setResolvedAudioUrl(source);
@@ -83,15 +66,12 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
 
     return () => {
       isCurrent = false;
-      if (localBlobUrl) {
-        URL.revokeObjectURL(localBlobUrl);
-      }
     };
   }, [mp3Lesson.dataUrl]);
 
   // When resolvedAudioUrl updates, force audio element to reload source buffer
   useEffect(() => {
-    if (audioRef.current && resolvedAudioUrl) {
+    if (audioRef.current && resolvedAudioUrl && !resolvedAudioUrl.startsWith('chunks://')) {
       audioRef.current.load();
     }
   }, [resolvedAudioUrl]);
@@ -129,11 +109,15 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
       setIsPlaying(false);
     } else {
       setPlaybackError(null);
+      if (!audio.src && resolvedAudioUrl && !resolvedAudioUrl.startsWith('chunks://')) {
+        audio.src = resolvedAudioUrl;
+        audio.load();
+      }
       audio.play().then(() => {
         setIsPlaying(true);
       }).catch((e) => {
         console.warn('Playback error:', e);
-        setPlaybackError('O navegador aguarda interação ou o fluxo de áudio está sendo processado.');
+        setPlaybackError('Toque em "Tentar Tocar" ou use os controles de áudio abaixo.');
         setIsPlaying(false);
       });
     }
@@ -227,12 +211,16 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
 
   return (
     <div className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-sm space-y-5">
-      {/* Hidden native audio element */}
+      {/* Audio Element */}
       <audio 
         ref={audioRef} 
-        src={resolvedAudioUrl} 
+        src={resolvedAudioUrl && !resolvedAudioUrl.startsWith('chunks://') ? resolvedAudioUrl : undefined} 
         preload="auto" 
-        onError={() => setPlaybackError('Aguardando decodificação do áudio...')}
+        onError={() => {
+          if (resolvedAudioUrl && !resolvedAudioUrl.startsWith('chunks://')) {
+            setPlaybackError('Clique no botão Tentar Tocar ou utilize a barra nativa de áudio.');
+          }
+        }}
       />
 
       {playbackError && (
@@ -396,7 +384,7 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
 
           {/* Download Button */}
           <a
-            href={mp3Lesson.dataUrl}
+            href={resolvedAudioUrl || mp3Lesson.dataUrl}
             download={mp3Lesson.fileName || 'videoaula.mp3'}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-black border border-slate-300 text-xs font-bold transition"
             title="Baixar arquivo MP3 para seu computador ou celular"

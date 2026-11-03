@@ -317,7 +317,7 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
             </div>
           )}
 
-          {/* SECTION: VIDEOAULA ONLINE & VÍDEO COMPLEMENTAR */}
+          {/* SECTION: CONTEÚDO COMPLEMENTAR */}
           {lesson.videoUrl && (
             <div className="p-5 rounded-2xl bg-white border border-slate-300 space-y-4">
               <div className="flex flex-wrap items-center justify-between pb-2 border-b border-slate-200 gap-2">
@@ -327,13 +327,13 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
                   </div>
                   <div>
                     <h3 className="text-sm font-black text-black flex items-center gap-2">
-                      <span>Videoaula Online</span>
+                      <span>Conteúdo Complementar</span>
                       <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
-                        Vídeo Didático
+                        Material Complementar
                       </span>
                     </h3>
                     <p className="text-xs text-slate-500 font-medium">
-                      Assista à explicação da aula gravada ou indicada pelo professor
+                      Acesse o conteúdo e materiais complementares indicados pelo professor
                     </p>
                   </div>
                 </div>
@@ -343,7 +343,7 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs"
-                  title="Abrir o vídeo em tela cheia em nova aba"
+                  title="Abrir o conteúdo complementar em nova aba"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span>Abrir em Nova Aba</span>
@@ -358,7 +358,7 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
                     <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black border border-slate-300 shadow-md">
                       <iframe
                         src={ytEmbed}
-                        title={`Videoaula: ${lesson.title}`}
+                        title={`Conteúdo Complementar: ${lesson.title}`}
                         className="w-full h-full border-none"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                         allowFullScreen
@@ -390,7 +390,7 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
                       </div>
                       <div className="min-w-0">
                         <h4 className="text-xs font-black text-black">
-                          Link da Videoaula Indicada pelo Docente
+                          Link do Conteúdo Complementar Indicado pelo Docente
                         </h4>
                         <p className="text-xs text-slate-600 font-mono truncate max-w-md mt-0.5">
                           {lesson.videoUrl}
@@ -405,7 +405,7 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
                       className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black transition shadow-xs shrink-0"
                     >
                       <Play className="h-3.5 w-3.5 fill-white" />
-                      <span>Assistir Videoaula</span>
+                      <span>Acessar Conteúdo</span>
                     </a>
                   </div>
                 );

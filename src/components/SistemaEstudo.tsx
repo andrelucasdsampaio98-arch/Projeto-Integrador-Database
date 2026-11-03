@@ -57,7 +57,8 @@ import {
   firebaseUpdateAula, 
   firebaseDeleteAula,
   firebaseOpenOrDownloadMaterial,
-  getMaterialCategory
+  getMaterialCategory,
+  isWriteQuotaExceeded
 } from '../lib/firebase';
 
 interface SistemaEstudoProps {
@@ -152,6 +153,7 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
 
   // Sincronização e estados locais
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showQuotaNotice, setShowQuotaNotice] = useState<boolean>(() => isWriteQuotaExceeded);
 
   // Lessons list
   const [lessons, setLessons] = useState<Lesson[]>(() => {
@@ -181,6 +183,9 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
     setIsSyncing(true);
     try {
       const res = await firebaseFetchAulas();
+      if (isWriteQuotaExceeded) {
+        setShowQuotaNotice(true);
+      }
       if (res.success && res.data) {
         if (res.data.length > 0) {
           setLessons(res.data);
@@ -360,11 +365,24 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
     }
 
     if (result.success) {
+      if (result.isLocalFallback || isWriteQuotaExceeded) {
+        setShowQuotaNotice(true);
+      }
       setNotification({
         type: 'success',
-        message: `${savedLesson.tipo === 'atividade' ? 'Atividade' : 'Aula'} salva com sucesso no Firebase Firestore!`,
+        message: result.warning || `${savedLesson.tipo === 'atividade' ? 'Atividade' : 'Aula'} salva com sucesso!`,
       });
-      await syncWithFirebase();
+      setLessons((prev) => {
+        const exists = prev.some((l) => l.id === savedLesson.id);
+        if (exists) {
+          return prev.map((l) => (l.id === savedLesson.id ? savedLesson : l));
+        } else {
+          return [savedLesson, ...prev];
+        }
+      });
+      if (!result.isLocalFallback) {
+        await syncWithFirebase();
+      }
     } else {
       setLessons((prev) => {
         const exists = prev.some((l) => l.id === savedLesson.id);
@@ -374,14 +392,17 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
           return [savedLesson, ...prev];
         }
       });
+      if (isWriteQuotaExceeded) {
+        setShowQuotaNotice(true);
+      }
       setNotification({
         type: 'error',
-        message: `Salvo localmente. Aviso Firebase: ${result.error}`,
+        message: `Salvo localmente no navegador. (${result.error || 'Aviso de sincronização'})`,
       });
     }
 
     setIsSyncing(false);
-    setTimeout(() => setNotification(null), 4000);
+    setTimeout(() => setNotification(null), 5000);
   };
 
   // Delete publication
@@ -552,6 +573,41 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
             >
               Fechar
             </button>
+          </div>
+        )}
+
+        {/* Quota limit informational banner with Firebase console link */}
+        {showQuotaNotice && (
+          <div className="p-4 rounded-2xl border-2 border-amber-300 bg-amber-50 text-amber-950 text-xs sm:text-sm font-medium flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <AlertCircle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <p className="font-bold text-amber-900">
+                  Cota diária gratuita do Firestore atingida para hoje (20.000 gravações)
+                </p>
+                <p className="text-amber-800 text-xs mt-0.5">
+                  O modo de persistência local resiliente foi ativado automaticamente: suas aulas, áudios e arquivos continuam salvando e funcionando sem interrupção. A cota da nuvem é reiniciada diariamente à meia-noite.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <a
+                href="https://console.firebase.google.com/project/gen-lang-client-0938236015/firestore/databases/ai-studio-pontecomunicaace-7f53400f-cccf-4c21-84f5-0d242ebcfdf6/data?openUpgradeDialog=true"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-800 text-white text-xs font-bold hover:bg-amber-900 transition-colors shadow-xs"
+              >
+                <span>Aumentar Cota</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <button
+                type="button"
+                onClick={() => setShowQuotaNotice(false)}
+                className="px-2.5 py-1.5 text-xs font-bold text-amber-900 hover:text-black underline"
+              >
+                Dispensar
+              </button>
+            </div>
           </div>
         )}
 
@@ -842,7 +898,7 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
               }`}
             >
               <Video className="h-3 w-3 text-red-600" />
-              <span>Vídeo</span>
+              <span>Complementar</span>
             </button>
           </div>
         </div>
@@ -1007,7 +1063,7 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
                 </div>
               )}
 
-              {/* Videoaula Online Link (se cadastrada) */}
+              {/* Conteúdo Complementar Link (se cadastrado) */}
               {lesson.videoUrl && (
                 <div className="p-3 rounded-2xl bg-red-50/70 border border-red-200/80 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -1017,10 +1073,10 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[11px] font-black uppercase text-red-950">
-                          Videoaula Online
+                          Conteúdo Complementar
                         </span>
                         <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-red-200 text-red-900">
-                          Vídeo
+                          Material
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-600 truncate max-w-[160px] sm:max-w-[200px]">
@@ -1033,17 +1089,17 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
                     <button
                       onClick={() => setActiveDetailLesson(lesson)}
                       className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-black shadow-xs transition"
-                      title="Assistir à videoaula nos detalhes"
+                      title="Acessar o conteúdo complementar nos detalhes"
                     >
                       <Play className="h-3 w-3 fill-white" />
-                      <span>Assistir</span>
+                      <span>Acessar</span>
                     </button>
                     <a
                       href={lesson.videoUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition"
-                      title="Abrir vídeo em nova aba"
+                      title="Abrir conteúdo complementar em nova aba"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
