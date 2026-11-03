@@ -16,7 +16,7 @@ import {
   Type
 } from 'lucide-react';
 import { LessonMp3Video } from '../types';
-import { firebaseLoadAulaMaterialUrl } from '../lib/firebase';
+import { firebaseLoadAulaMaterialUrl, dataUrlToBlob } from '../lib/firebase';
 
 interface Mp3VideoLessonPlayerProps {
   mp3Lesson: LessonMp3Video;
@@ -38,18 +38,63 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const [vlibrasNotice, setVlibrasNotice] = useState(false);
   const [selectedSentence, setSelectedSentence] = useState<string | null>(null);
-  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>(mp3Lesson.dataUrl);
+  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>(mp3Lesson.dataUrl || '');
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mp3Lesson.dataUrl && mp3Lesson.dataUrl.startsWith('chunks://')) {
-      const aulaId = mp3Lesson.dataUrl.replace('chunks://', '');
-      firebaseLoadAulaMaterialUrl(aulaId, mp3Lesson.dataUrl).then((url) => {
-        if (url) setResolvedAudioUrl(url);
-      });
-    } else {
-      setResolvedAudioUrl(mp3Lesson.dataUrl);
-    }
+    let isCurrent = true;
+    let localBlobUrl: string | null = null;
+    setPlaybackError(null);
+
+    const resolveAudio = async () => {
+      const source = mp3Lesson.dataUrl;
+      if (!source) return;
+
+      if (source.startsWith('chunks://')) {
+        const aulaId = source.replace('chunks://', '');
+        const loaded = await firebaseLoadAulaMaterialUrl(aulaId, source);
+        if (isCurrent && loaded) {
+          if (loaded.startsWith('data:')) {
+            try {
+              const b = dataUrlToBlob(loaded);
+              localBlobUrl = URL.createObjectURL(b);
+              setResolvedAudioUrl(localBlobUrl);
+            } catch {
+              setResolvedAudioUrl(loaded);
+            }
+          } else {
+            setResolvedAudioUrl(loaded);
+          }
+        }
+      } else if (source.startsWith('data:')) {
+        try {
+          const b = dataUrlToBlob(source);
+          localBlobUrl = URL.createObjectURL(b);
+          setResolvedAudioUrl(localBlobUrl);
+        } catch {
+          setResolvedAudioUrl(source);
+        }
+      } else {
+        setResolvedAudioUrl(source);
+      }
+    };
+
+    resolveAudio();
+
+    return () => {
+      isCurrent = false;
+      if (localBlobUrl) {
+        URL.revokeObjectURL(localBlobUrl);
+      }
+    };
   }, [mp3Lesson.dataUrl]);
+
+  // When resolvedAudioUrl updates, force audio element to reload source buffer
+  useEffect(() => {
+    if (audioRef.current && resolvedAudioUrl) {
+      audioRef.current.load();
+    }
+  }, [resolvedAudioUrl]);
 
   // Sync audio events
   useEffect(() => {
@@ -83,10 +128,13 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
       audio.pause();
       setIsPlaying(false);
     } else {
+      setPlaybackError(null);
       audio.play().then(() => {
         setIsPlaying(true);
       }).catch((e) => {
         console.warn('Playback error:', e);
+        setPlaybackError('O navegador aguarda interação ou o fluxo de áudio está sendo processado.');
+        setIsPlaying(false);
       });
     }
   };
@@ -180,7 +228,30 @@ export const Mp3VideoLessonPlayer: React.FC<Mp3VideoLessonPlayerProps> = ({
   return (
     <div className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-sm space-y-5">
       {/* Hidden native audio element */}
-      <audio ref={audioRef} src={resolvedAudioUrl} preload="metadata" />
+      <audio 
+        ref={audioRef} 
+        src={resolvedAudioUrl} 
+        preload="auto" 
+        onError={() => setPlaybackError('Aguardando decodificação do áudio...')}
+      />
+
+      {playbackError && (
+        <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-semibold flex items-center justify-between gap-2">
+          <span>{playbackError}</span>
+          <button
+            onClick={() => {
+              setPlaybackError(null);
+              if (audioRef.current) {
+                audioRef.current.load();
+                audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+              }
+            }}
+            className="px-2.5 py-1 rounded-lg bg-black text-white font-bold hover:bg-slate-800 transition"
+          >
+            Tentar Tocar
+          </button>
+        </div>
+      )}
 
       {/* Header of the MP3 lesson */}
       <div className="flex flex-wrap items-start justify-between gap-3 pb-4 border-b border-slate-200">

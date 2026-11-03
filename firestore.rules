@@ -62,13 +62,13 @@ service cloud.firestore {
 
     // Publicações Pedagógicas (Videoaulas e Atividades)
     match /aulas/{aulaId} {
-      allow read, list: if isSignedIn();
+      allow read, list: if true;
       allow create, update: if isSignedIn() && isValidId(aulaId) && isValidAula(request.resource.data);
       allow delete: if isSignedIn() && isValidId(aulaId);
 
       // Particionamento de Arquivos Grandes (PDFs e MP3s)
       match /chunks/{chunkId} {
-        allow read, list: if isSignedIn();
+        allow read, list: if true;
         allow create, update, delete: if isSignedIn();
       }
     }

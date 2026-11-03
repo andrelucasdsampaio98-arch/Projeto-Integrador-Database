@@ -24,6 +24,7 @@ export interface LessonPdfFile {
   name: string;
   sizeFormatted: string;
   dataUrl: string;
+  pathOrUrl?: string;
   uploadedAt: string;
   pageCount?: number;
   description?: string;

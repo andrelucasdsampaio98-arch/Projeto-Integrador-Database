@@ -21,7 +21,9 @@ import {
   Clock,
   FileCheck,
   Image as ImageIcon,
-  Loader2
+  Loader2,
+  Video,
+  Play
 } from 'lucide-react';
 import { Lesson, LessonPdfFile } from '../types';
 import { Mp3VideoLessonPlayer } from './Mp3VideoLessonPlayer';
@@ -39,6 +41,16 @@ interface StudentLessonDetailModalProps {
   speak: (text: string) => void;
   isSpeaking: boolean;
   cancelSpeak: () => void;
+}
+
+function getYouTubeEmbedUrl(url?: string): string | null {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+  const match = url.match(regExp);
+  if (match && match[2] && match[2].length === 11) {
+    return `https://www.youtube.com/embed/${match[2]}`;
+  }
+  return null;
 }
 
 export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> = ({
@@ -305,36 +317,156 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
             </div>
           )}
 
-          {/* SECTION: VIDEOAULAS EM MP3 & TRADUÇÃO COM BONECO DO VLIBRAS */}
-          {lesson.mp3Lessons && lesson.mp3Lessons.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-black text-white font-bold">
-                    <FileAudio className="h-4 w-4 text-white" />
+          {/* SECTION: VIDEOAULA ONLINE & VÍDEO COMPLEMENTAR */}
+          {lesson.videoUrl && (
+            <div className="p-5 rounded-2xl bg-white border border-slate-300 space-y-4">
+              <div className="flex flex-wrap items-center justify-between pb-2 border-b border-slate-200 gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-600 text-white font-bold shadow-xs">
+                    <Video className="h-5 w-5 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black text-black">
-                      Videoaulas em Áudio MP3 & Tradução em Libras ({lesson.mp3Lessons.length})
+                    <h3 className="text-sm font-black text-black flex items-center gap-2">
+                      <span>Videoaula Online</span>
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
+                        Vídeo Didático
+                      </span>
                     </h3>
                     <p className="text-xs text-slate-500 font-medium">
-                      Ouça a explicação da aula e traduza para Libras com o Boneco do VLibras
+                      Assista à explicação da aula gravada ou indicada pelo professor
                     </p>
                   </div>
                 </div>
+
+                <a
+                  href={lesson.videoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs"
+                  title="Abrir o vídeo em tela cheia em nova aba"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Abrir em Nova Aba</span>
+                </a>
               </div>
 
-              <div className="space-y-4">
-                {lesson.mp3Lessons.map((mp3) => (
-                  <Mp3VideoLessonPlayer
-                    key={mp3.id}
-                    mp3Lesson={mp3}
-                    lessonTitle={lesson.title}
-                  />
-                ))}
-              </div>
+              {/* Video Embed or Link Card */}
+              {(() => {
+                const ytEmbed = getYouTubeEmbedUrl(lesson.videoUrl);
+                if (ytEmbed) {
+                  return (
+                    <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black border border-slate-300 shadow-md">
+                      <iframe
+                        src={ytEmbed}
+                        title={`Videoaula: ${lesson.title}`}
+                        className="w-full h-full border-none"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                      />
+                    </div>
+                  );
+                }
+
+                // If direct video file (.mp4, .webm)
+                const isDirectVideo = lesson.videoUrl.toLowerCase().endsWith('.mp4') || lesson.videoUrl.toLowerCase().endsWith('.webm');
+                if (isDirectVideo) {
+                  return (
+                    <div className="w-full rounded-2xl overflow-hidden bg-black border border-slate-300 shadow-md">
+                      <video
+                        src={lesson.videoUrl}
+                        controls
+                        className="w-full max-h-[420px]"
+                      />
+                    </div>
+                  );
+                }
+
+                // External Link Card
+                return (
+                  <div className="p-4 rounded-2xl bg-red-50/50 border border-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 font-black">
+                        <Video className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-black text-black">
+                          Link da Videoaula Indicada pelo Docente
+                        </h4>
+                        <p className="text-xs text-slate-600 font-mono truncate max-w-md mt-0.5">
+                          {lesson.videoUrl}
+                        </p>
+                      </div>
+                    </div>
+
+                    <a
+                      href={lesson.videoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black transition shadow-xs shrink-0"
+                    >
+                      <Play className="h-3.5 w-3.5 fill-white" />
+                      <span>Assistir Videoaula</span>
+                    </a>
+                  </div>
+                );
+              })()}
             </div>
           )}
+
+          {/* SECTION: VIDEOAULAS EM MP3 & TRADUÇÃO COM BONECO DO VLIBRAS */}
+          {(() => {
+            const combinedMp3s = [...(lesson.mp3Lessons || [])];
+            // Se o material principal for um áudio MP3 e não estiver em mp3Lessons
+            if (
+              combinedMp3s.length === 0 && 
+              lesson.materialUrl && 
+              (lesson.materialType?.startsWith('audio/') || lesson.materialName?.toLowerCase().endsWith('.mp3'))
+            ) {
+              combinedMp3s.push({
+                id: 'mat-audio-' + lesson.id,
+                title: lesson.materialName || 'Videoaula em Áudio MP3',
+                fileName: lesson.materialName || 'audio.mp3',
+                dataUrl: lesson.materialUrl,
+                durationFormatted: 'Áudio anexado',
+                fileSizeFormatted: lesson.materialSize || 'Áudio',
+                uploadedAt: lesson.date || '',
+                transcript: lesson.accessibleTranscript || lesson.summary || 'Áudio explicativo da aula.',
+                librasInstructions: 'Sinalizar os conceitos centrais no Boneco do VLibras.'
+              });
+            }
+
+            if (combinedMp3s.length === 0) return null;
+
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-black text-white font-bold">
+                      <FileAudio className="h-4 w-4 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-black">
+                        Videoaulas em Áudio MP3 & Tradução em Libras ({combinedMp3s.length})
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Ouça a explicação da aula e traduza para Libras com o Boneco do VLibras
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {combinedMp3s.map((mp3) => (
+                    <Mp3VideoLessonPlayer
+                      key={mp3.id}
+                      mp3Lesson={mp3}
+                      lessonTitle={lesson.title}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* SECTION: MATERIAIS ANEXADOS PARA ESTUDO & ATIVIDADES */}
           {(() => {
@@ -459,45 +591,53 @@ export const StudentLessonDetailModal: React.FC<StudentLessonDetailModalProps> =
                             </p>
                           )}
 
-                          {/* Botões do Aluno: Abrir material & Baixar material com links assinados temporários */}
-                          <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
-                            {/* Botão Abrir Material */}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenMaterial(file.pathOrUrl, file.name)}
-                              disabled={Boolean(isGeneratingUrl)}
-                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-black hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs disabled:opacity-50"
-                              title="Abrir o material no navegador via link seguro assinado (createSignedUrl)"
-                            >
-                              {isOpeningThis ? (
-                                <>
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  <span>Abrindo...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                  <span>Abrir material</span>
-                                </>
-                              )}
-                            </button>
+                          {/* Botões do Aluno: Abrir material & Baixar material com links seguros */}
+                          {(() => {
+                            const targetPath = file.pathOrUrl || (file.rawPdf && (file.rawPdf.pathOrUrl || file.rawPdf.dataUrl)) || lesson.materialUrl || '';
+                            const isOpeningThis = isGeneratingUrl === 'open' && activeMaterialPath === targetPath;
+                            const isDownloadingThis = isGeneratingUrl === 'download' && activeMaterialPath === targetPath;
 
-                            {/* Botão Baixar Material */}
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadMaterial(file.pathOrUrl, file.name)}
-                              disabled={Boolean(isGeneratingUrl)}
-                              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-200 text-black border border-slate-300 text-xs font-bold transition disabled:opacity-50"
-                              title="Baixar material para o computador via link temporário assinado"
-                            >
-                              {isDownloadingThis ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Download className="h-3.5 w-3.5" />
-                              )}
-                              <span>Baixar material</span>
-                            </button>
-                          </div>
+                            return (
+                              <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
+                                {/* Botão Abrir Material */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenMaterial(targetPath, file.name)}
+                                  disabled={Boolean(isGeneratingUrl)}
+                                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-black hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs disabled:opacity-50"
+                                  title="Abrir o material no navegador de forma segura"
+                                >
+                                  {isOpeningThis ? (
+                                    <>
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      <span>Abrindo...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ExternalLink className="h-3.5 w-3.5" />
+                                      <span>Abrir material</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                {/* Botão Baixar Material */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadMaterial(targetPath, file.name)}
+                                  disabled={Boolean(isGeneratingUrl)}
+                                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-200 text-black border border-slate-300 text-xs font-bold transition disabled:opacity-50"
+                                  title="Baixar material para o computador"
+                                >
+                                  {isDownloadingThis ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Download className="h-3.5 w-3.5" />
+                                  )}
+                                  <span>Baixar</span>
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}

@@ -33,7 +33,8 @@ import {
   FileCheck,
   Image as ImageIcon,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  Video
 } from 'lucide-react';
 import { 
   Lesson, 
@@ -216,7 +217,7 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSubject, setSelectedSubject] = useState<string>('Todas');
   const [selectedTipo, setSelectedTipo] = useState<'todos' | 'aula' | 'atividade' | 'minhas'>('todos');
-  const [selectedMediaType, setSelectedMediaType] = useState<'todos' | 'com-mp3' | 'com-pdf'>('todos');
+  const [selectedMediaType, setSelectedMediaType] = useState<'todos' | 'com-mp3' | 'com-pdf' | 'com-video'>('todos');
   const [selectedStatus, setSelectedStatus] = useState<'todos' | 'pendentes' | 'concluidas'>('todos');
 
   // Modals state
@@ -298,7 +299,8 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
     const matchesMediaType =
       selectedMediaType === 'todos' ||
       (selectedMediaType === 'com-mp3' && lesson.mp3Lessons && lesson.mp3Lessons.length > 0) ||
-      (selectedMediaType === 'com-pdf' && ((lesson.pdfFiles && lesson.pdfFiles.length > 0) || Boolean(lesson.materialUrl)));
+      (selectedMediaType === 'com-pdf' && ((lesson.pdfFiles && lesson.pdfFiles.length > 0) || Boolean(lesson.materialUrl))) ||
+      (selectedMediaType === 'com-video' && Boolean(lesson.videoUrl));
 
     const matchesStatus = 
       selectedStatus === 'todos' ||
@@ -831,6 +833,17 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
               <FileAudio className="h-3 w-3" />
               <span>MP3</span>
             </button>
+            <button
+              onClick={() => setSelectedMediaType('com-video')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                selectedMediaType === 'com-video'
+                  ? 'bg-orange-300 text-stone-900 border border-orange-400 font-black shadow-2xs'
+                  : 'text-stone-700 hover:text-stone-900 hover:bg-orange-50'
+              }`}
+            >
+              <Video className="h-3 w-3 text-red-600" />
+              <span>Vídeo</span>
+            </button>
           </div>
         </div>
 
@@ -991,6 +1004,50 @@ export const SistemaEstudo: React.FC<SistemaEstudoProps> = ({
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Videoaula Online Link (se cadastrada) */}
+              {lesson.videoUrl && (
+                <div className="p-3 rounded-2xl bg-red-50/70 border border-red-200/80 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white shadow-2xs">
+                      <Video className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-black uppercase text-red-950">
+                          Videoaula Online
+                        </span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-red-200 text-red-900">
+                          Vídeo
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 truncate max-w-[160px] sm:max-w-[200px]">
+                        {lesson.videoUrl}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => setActiveDetailLesson(lesson)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-black shadow-xs transition"
+                      title="Assistir à videoaula nos detalhes"
+                    >
+                      <Play className="h-3 w-3 fill-white" />
+                      <span>Assistir</span>
+                    </button>
+                    <a
+                      href={lesson.videoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition"
+                      title="Abrir vídeo em nova aba"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
                 </div>
               )}
 

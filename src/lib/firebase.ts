@@ -472,11 +472,36 @@ export async function firebaseCreateAula(lesson: Lesson): Promise<{ success: boo
     if (!cleanLesson.tags) cleanLesson.tags = [cleanLesson.subject || 'Geral'];
 
     // Para evitar exceder o limite de 1MB do Firestore no documento da aula:
-    // Se o materialUrl for um dataUrl longo (> 500KB), removemos o base64 do doc raiz
-    // pois os chunks já estão na subcoleção 'chunks'!
-    const docData: any = { ...cleanLesson };
-    if (docData.materialUrl && docData.materialUrl.startsWith('data:') && docData.materialUrl.length > 500000) {
-      docData.materialUrl = `chunks://${cleanLesson.id}`;
+    // Se o materialUrl ou pdfFiles/mp3Lessons possuírem dataUrl longo (> 200KB), sanitiza com referência aos chunks
+    const sanitizedPdfFiles = (cleanLesson.pdfFiles || []).map((pdf) => {
+      if (pdf.dataUrl && pdf.dataUrl.startsWith('data:') && pdf.dataUrl.length > 200000) {
+        return {
+          ...pdf,
+          dataUrl: `chunks://${cleanLesson.id}/pdf`,
+          pathOrUrl: `chunks://${cleanLesson.id}/pdf`
+        };
+      }
+      return pdf;
+    });
+
+    const sanitizedMp3Lessons = (cleanLesson.mp3Lessons || []).map((mp3) => {
+      if (mp3.dataUrl && mp3.dataUrl.startsWith('data:') && mp3.dataUrl.length > 200000) {
+        return {
+          ...mp3,
+          dataUrl: `chunks://${cleanLesson.id}/audio`
+        };
+      }
+      return mp3;
+    });
+
+    const docData: any = { 
+      ...cleanLesson,
+      pdfFiles: sanitizedPdfFiles,
+      mp3Lessons: sanitizedMp3Lessons
+    };
+
+    if (docData.materialUrl && docData.materialUrl.startsWith('data:') && docData.materialUrl.length > 200000) {
+      docData.materialUrl = `chunks://${cleanLesson.id}/pdf`;
     }
 
     const docPath = `aulas/${aulaId}`;
@@ -502,12 +527,36 @@ export async function firebaseCreateAula(lesson: Lesson): Promise<{ success: boo
 export async function firebaseUpdateAula(lesson: Lesson): Promise<{ success: boolean; error?: string }> {
   try {
     const docPath = `aulas/${lesson.id}`;
+
+    const sanitizedPdfFiles = (lesson.pdfFiles || []).map((pdf) => {
+      if (pdf.dataUrl && pdf.dataUrl.startsWith('data:') && pdf.dataUrl.length > 200000) {
+        return {
+          ...pdf,
+          dataUrl: `chunks://${lesson.id}/pdf`,
+          pathOrUrl: `chunks://${lesson.id}/pdf`
+        };
+      }
+      return pdf;
+    });
+
+    const sanitizedMp3Lessons = (lesson.mp3Lessons || []).map((mp3) => {
+      if (mp3.dataUrl && mp3.dataUrl.startsWith('data:') && mp3.dataUrl.length > 200000) {
+        return {
+          ...mp3,
+          dataUrl: `chunks://${lesson.id}/audio`
+        };
+      }
+      return mp3;
+    });
+
     const docData: any = {
       ...lesson,
+      pdfFiles: sanitizedPdfFiles,
+      mp3Lessons: sanitizedMp3Lessons,
       isFromFirebase: true
     };
-    if (docData.materialUrl && docData.materialUrl.startsWith('data:') && docData.materialUrl.length > 500000) {
-      docData.materialUrl = `chunks://${lesson.id}`;
+    if (docData.materialUrl && docData.materialUrl.startsWith('data:') && docData.materialUrl.length > 200000) {
+      docData.materialUrl = `chunks://${lesson.id}/pdf`;
     }
 
     try {
@@ -565,9 +614,9 @@ export async function firebaseDeleteAula(id: string): Promise<{ success: boolean
 /**
  * Upload seguro de materiais em PDF e Áudio MP3:
  * 1. Converte o arquivo para Data URL de imediato (sem travamento no navegador).
- * 2. Se o arquivo for maior que 400KB, particiona em fragmentos menores salvos
- *    na subcoleção 'aulas/{aulaId}/chunks/{chunkId}' do Firestore.
- * 3. Mostra progresso real (0 a 100%) garantindo que NUNCA fique travado carregando.
+ * 2. Se o arquivo for maior que 300KB, particiona em fragmentos menores salvos
+ *    na subcoleção 'aulas/{aulaId}/chunks/{prefix}_chunk_{index}' do Firestore com upload concorrente.
+ * 3. Garante que PDF e Áudio MP3 da mesma aula não colidam e salva no cache em memória.
  */
 export async function firebaseSaveAulaMaterialChunks(
   aulaId: string,
@@ -576,18 +625,22 @@ export async function firebaseSaveAulaMaterialChunks(
   onProgress?: (progressPct: number) => void
 ): Promise<{ success: boolean; materialUrl?: string; error?: string }> {
   try {
-    if (onProgress) onProgress(10);
+    if (onProgress) onProgress(15);
 
     // Leitura rápida do arquivo em base64
     const dataUrl = await fileToDataUrl(file);
-    if (onProgress) onProgress(30);
+    if (onProgress) onProgress(35);
 
-    // Salva no cache local para exibição imediata
+    const prefix = folder === 'audio' ? 'audio' : 'pdf';
+    const referenceUrl = `chunks://${aulaId}/${prefix}`;
+
+    // Salva no cache local para exibição e reprodução imediata
+    materialBlobsCache.set(referenceUrl, dataUrl);
+    materialBlobsCache.set(`${aulaId}/${prefix}`, dataUrl);
     materialBlobsCache.set(aulaId, dataUrl);
 
-    // Se o arquivo for relativamente pequeno (< 400KB), o base64 direto cabe no Firestore
-    const CHUNK_CHAR_LIMIT = 400000; // ~300KB por chunk (bem abaixo do limite de 1MB do Firestore)
-
+    // Se o arquivo for pequeno (< 200KB) e não colidir com o limite de 1MB, podemos retornar direto
+    const CHUNK_CHAR_LIMIT = 300000; // ~225KB por chunk para segurança máxima
     if (dataUrl.length <= CHUNK_CHAR_LIMIT) {
       if (onProgress) onProgress(100);
       return {
@@ -596,25 +649,39 @@ export async function firebaseSaveAulaMaterialChunks(
       };
     }
 
-    // Para arquivos maiores (PDFs com várias páginas ou MP3s): particiona em chunks
+    // Para arquivos maiores (PDFs ou MP3s): particiona em sub-documentos com prefixo
     const totalChunks = Math.ceil(dataUrl.length / CHUNK_CHAR_LIMIT);
     const chunksCollRef = collection(db, 'aulas', aulaId, 'chunks');
 
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_CHAR_LIMIT;
-      const end = Math.min(start + CHUNK_CHAR_LIMIT, dataUrl.length);
-      const chunkData = dataUrl.substring(start, end);
+    // Executa o envio em lotes de 4 chunks concorrentes para velocidade e estabilidade
+    const BATCH_SIZE = 4;
+    for (let b = 0; b < totalChunks; b += BATCH_SIZE) {
+      const batchPromises: Promise<any>[] = [];
+      const endBatch = Math.min(b + BATCH_SIZE, totalChunks);
 
-      const chunkDocRef = doc(chunksCollRef, `chunk_${String(i).padStart(3, '0')}`);
-      await setDoc(chunkDocRef, {
-        chunkIndex: i,
-        totalChunks,
-        data: chunkData,
-        type: folder
-      });
+      for (let i = b; i < endBatch; i++) {
+        const start = i * CHUNK_CHAR_LIMIT;
+        const end = Math.min(start + CHUNK_CHAR_LIMIT, dataUrl.length);
+        const chunkData = dataUrl.substring(start, end);
+
+        const chunkDocRef = doc(chunksCollRef, `${prefix}_chunk_${String(i).padStart(3, '0')}`);
+        batchPromises.push(
+          setDoc(chunkDocRef, {
+            prefix,
+            chunkIndex: i,
+            totalChunks,
+            data: chunkData,
+            type: folder,
+            fileName: file.name,
+            mimeType: file.type || (folder === 'pdf' ? 'application/pdf' : 'audio/mpeg')
+          })
+        );
+      }
+
+      await Promise.all(batchPromises);
 
       if (onProgress) {
-        const pct = Math.min(95, Math.round(30 + ((i + 1) / totalChunks) * 65));
+        const pct = Math.min(95, Math.round(35 + (endBatch / totalChunks) * 60));
         onProgress(pct);
       }
     }
@@ -623,13 +690,16 @@ export async function firebaseSaveAulaMaterialChunks(
 
     return {
       success: true,
-      materialUrl: `chunks://${aulaId}`
+      materialUrl: referenceUrl
     };
   } catch (err: any) {
     console.error('Erro ao particionar arquivo no Firestore:', err);
-    // Em caso de falha de rede ao particionar, mantém o dataUrl localmente
+    // Em caso de falha de rede ao particionar, mantém o dataUrl localmente no cache
     try {
       const dataUrl = await fileToDataUrl(file);
+      const prefix = folder === 'audio' ? 'audio' : 'pdf';
+      const referenceUrl = `chunks://${aulaId}/${prefix}`;
+      materialBlobsCache.set(referenceUrl, dataUrl);
       materialBlobsCache.set(aulaId, dataUrl);
       if (onProgress) onProgress(100);
       return {
@@ -646,47 +716,110 @@ export async function firebaseSaveAulaMaterialChunks(
 }
 
 /**
- * Reconstrói um arquivo particionado em chunks no Firestore e retorna uma URL utilizável (Blob ou DataURL)
+ * Reconstrói um arquivo particionado em chunks no Firestore e retorna uma URL utilizável (Blob URL ou DataURL)
  */
 export async function firebaseLoadAulaMaterialUrl(
   aulaId: string, 
   rawUrl?: string | null
 ): Promise<string | null> {
-  if (!rawUrl) return null;
+  const searchKey = rawUrl || aulaId;
+  if (!searchKey) return null;
 
-  // Se já temos em cache de memória
+  // 1. Se já temos em cache de memória
+  if (materialBlobsCache.has(searchKey)) {
+    return materialBlobsCache.get(searchKey)!;
+  }
   if (materialBlobsCache.has(aulaId)) {
     return materialBlobsCache.get(aulaId)!;
   }
 
-  // Se é uma URL HTTP/HTTPS ou DataURL normal
-  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:')) {
-    materialBlobsCache.set(aulaId, rawUrl);
-    return rawUrl;
+  // 2. Se é uma URL HTTP/HTTPS ou DataURL ou BlobURL normal
+  if (
+    searchKey.startsWith('http://') || 
+    searchKey.startsWith('https://') || 
+    searchKey.startsWith('data:') ||
+    searchKey.startsWith('blob:')
+  ) {
+    materialBlobsCache.set(searchKey, searchKey);
+    return searchKey;
   }
 
-  // Se é um arquivo particionado ('chunks://...')
+  // 3. Extrai o ID limpo da aula e o prefixo (pdf ou audio)
+  let cleanId = aulaId.replace('chunks://', '').trim();
+  let targetPrefix: string | null = null;
+
+  if (cleanId.includes('/')) {
+    const parts = cleanId.split('/');
+    cleanId = parts[0];
+    targetPrefix = parts[1];
+  } else if (rawUrl && rawUrl.includes('/')) {
+    const parts = rawUrl.replace('chunks://', '').split('/');
+    if (parts.length > 1) {
+      cleanId = parts[0];
+      targetPrefix = parts[1];
+    }
+  }
+
+  // 4. Busca os fragmentos no Firestore
   try {
-    const chunksSnap = await getDocs(collection(db, 'aulas', aulaId, 'chunks'));
+    const chunksSnap = await getDocs(collection(db, 'aulas', cleanId, 'chunks'));
     if (chunksSnap.empty) {
-      console.warn('Nenhum fragmento encontrado para a aula:', aulaId);
+      console.warn('Nenhum fragmento encontrado para a aula:', cleanId);
       return null;
     }
 
-    const chunkItems: { chunkIndex: number; data: string }[] = [];
+    const chunkItems: { chunkIndex: number; data: string; mimeType?: string }[] = [];
     chunksSnap.forEach((docSnap) => {
       const d = docSnap.data();
-      chunkItems.push({
-        chunkIndex: d.chunkIndex ?? 0,
-        data: d.data || ''
-      });
+      const docId = docSnap.id;
+
+      if (targetPrefix) {
+        if (d.prefix === targetPrefix || docId.startsWith(`${targetPrefix}_`)) {
+          chunkItems.push({
+            chunkIndex: d.chunkIndex ?? 0,
+            data: d.data || '',
+            mimeType: d.mimeType
+          });
+        }
+      } else {
+        chunkItems.push({
+          chunkIndex: d.chunkIndex ?? 0,
+          data: d.data || '',
+          mimeType: d.mimeType
+        });
+      }
     });
+
+    // Se filtrou por prefix e não achou, mas há chunks (retrocompatibilidade)
+    if (chunkItems.length === 0 && !chunksSnap.empty) {
+      chunksSnap.forEach((docSnap) => {
+        const d = docSnap.data();
+        chunkItems.push({
+          chunkIndex: d.chunkIndex ?? 0,
+          data: d.data || '',
+          mimeType: d.mimeType
+        });
+      });
+    }
 
     chunkItems.sort((a, b) => a.chunkIndex - b.chunkIndex);
     const fullDataUrl = chunkItems.map((c) => c.data).join('');
 
-    materialBlobsCache.set(aulaId, fullDataUrl);
-    return fullDataUrl;
+    if (!fullDataUrl) {
+      return null;
+    }
+
+    // Tenta converter em Blob URL nativo para navegação e streaming de áudio sem limites
+    try {
+      const blob = dataUrlToBlob(fullDataUrl);
+      const blobUrl = URL.createObjectURL(blob);
+      materialBlobsCache.set(searchKey, blobUrl);
+      materialBlobsCache.set(cleanId, blobUrl);
+      return blobUrl;
+    } catch {
+      materialBlobsCache.set(searchKey, fullDataUrl);
+      return fullDataUrl;
+    }
   } catch (err) {
     console.error('Erro ao reconstruir material particionado:', err);
     return null;
@@ -694,7 +827,7 @@ export async function firebaseLoadAulaMaterialUrl(
 }
 
 /**
- * Abre ou baixa um material salvo no Firebase
+ * Abre ou baixa um material salvo no Firebase com segurança total contra falhas de atob
  */
 export async function firebaseOpenOrDownloadMaterial(
   pathOrUrl: string, 
@@ -702,7 +835,9 @@ export async function firebaseOpenOrDownloadMaterial(
   mode: 'open' | 'download' = 'open',
   aulaId?: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!pathOrUrl) return { success: false, error: 'URL do arquivo não fornecida.' };
+  if (!pathOrUrl) {
+    return { success: false, error: 'URL do arquivo não fornecida.' };
+  }
 
   try {
     let resolvedUrl = pathOrUrl;
@@ -713,12 +848,16 @@ export async function firebaseOpenOrDownloadMaterial(
       const reconstructed = await firebaseLoadAulaMaterialUrl(extractedId, pathOrUrl);
       if (reconstructed) {
         resolvedUrl = reconstructed;
+      } else {
+        return { 
+          success: false, 
+          error: 'Material ainda não sincronizado ou fragmentos não encontrados no banco de dados.' 
+        };
       }
     }
 
     if (mode === 'open') {
       if (resolvedUrl.startsWith('data:')) {
-        // Para abrir dataURL de PDF de forma segura em nova aba: cria um Blob URL
         const blob = dataUrlToBlob(resolvedUrl);
         const blobUrl = URL.createObjectURL(blob);
         window.open(blobUrl, '_blank', 'noopener,noreferrer');
@@ -729,22 +868,29 @@ export async function firebaseOpenOrDownloadMaterial(
     }
 
     // Modo Download
-    const a = document.createElement('a');
+    let downloadHref = resolvedUrl;
+    let tempBlobUrl: string | null = null;
+
     if (resolvedUrl.startsWith('data:')) {
       const blob = dataUrlToBlob(resolvedUrl);
-      const blobUrl = URL.createObjectURL(blob);
-      a.href = blobUrl;
-    } else {
-      a.href = resolvedUrl;
+      tempBlobUrl = URL.createObjectURL(blob);
+      downloadHref = tempBlobUrl;
     }
+
+    const a = document.createElement('a');
+    a.href = downloadHref;
     a.download = filename || 'material';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+
+    if (tempBlobUrl) {
+      setTimeout(() => URL.revokeObjectURL(tempBlobUrl!), 10000);
+    }
     return { success: true };
   } catch (err: any) {
     console.error('Erro ao abrir/baixar material:', err);
-    return { success: false, error: err.message };
+    return { success: false, error: err.message || 'Erro ao processar o download do arquivo.' };
   }
 }
 
@@ -757,15 +903,64 @@ export function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-function dataUrlToBlob(dataUrl: string): Blob {
-  const parts = dataUrl.split(';base64,');
-  const contentType = parts[0].split(':')[1] || 'application/octet-stream';
-  const raw = window.atob(parts[1]);
-  const uInt8Array = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; ++i) {
-    uInt8Array[i] = raw.charCodeAt(i);
+/**
+ * Converte dataUrl base64 em Blob com tratamento total de erros,
+ * limpeza de caracteres de espaço, correção de padding '=' e fallbacks resilientes.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  if (!dataUrl) {
+    return new Blob([], { type: 'application/octet-stream' });
   }
-  return new Blob([uInt8Array], { type: contentType });
+
+  // Se já for uma URL HTTP ou Blob URL
+  if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http:') || dataUrl.startsWith('https:')) {
+    return new Blob([], { type: 'application/octet-stream' });
+  }
+
+  let mimeType = 'application/octet-stream';
+  let base64Part = dataUrl;
+
+  if (dataUrl.includes(',')) {
+    const parts = dataUrl.split(',');
+    const header = parts[0];
+    const mimeMatch = header.match(/:(.*?);/);
+    if (mimeMatch && mimeMatch[1]) {
+      mimeType = mimeMatch[1];
+    }
+    base64Part = parts[1] || '';
+  }
+
+  // Remove quebras de linha e espaços em branco que quebram o atob nativo
+  base64Part = base64Part.trim().replace(/\s/g, '');
+
+  // Ajusta preenchimento de Base64 se estiver incompleto (múltiplo de 4)
+  const remainder = base64Part.length % 4;
+  if (remainder === 2) {
+    base64Part += '==';
+  } else if (remainder === 3) {
+    base64Part += '=';
+  } else if (remainder === 1) {
+    // Trunca caractere solto inválido
+    base64Part = base64Part.slice(0, -1);
+  }
+
+  try {
+    const binary = window.atob(base64Part);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mimeType });
+  } catch (err) {
+    console.warn('Falha no window.atob, gerando fallback de dados:', err);
+    try {
+      const decoded = decodeURIComponent(escape(base64Part));
+      return new Blob([decoded], { type: mimeType });
+    } catch {
+      return new Blob([base64Part], { type: mimeType });
+    }
+  }
 }
 
 export function isMaterialFileAllowed(file: File): { valid: boolean; reason?: string } {

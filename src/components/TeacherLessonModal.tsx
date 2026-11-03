@@ -177,7 +177,7 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
         id: 'mp3-' + Date.now(),
         title: `Videoaula MP3: ${file.name.replace(/\.[^/.]+$/, '')}`,
         fileName: file.name,
-        dataUrl: storageResult.materialUrl || `chunks://${targetId}`,
+        dataUrl: storageResult.materialUrl || `chunks://${targetId}/audio`,
         durationFormatted: 'Duração sob demanda',
         fileSizeFormatted: sizeFormatted,
         uploadedAt: new Date().toLocaleDateString('pt-BR'),
@@ -353,6 +353,7 @@ export const TeacherLessonModal: React.FC<TeacherLessonModalProps> = ({
         name: file.name,
         sizeFormatted,
         dataUrl: storagePath,
+        pathOrUrl: storagePath,
         uploadedAt: new Date().toLocaleDateString('pt-BR'),
         description: `Material anexado (${file.type || 'documento'}) em ${new Date().toLocaleDateString('pt-BR')}`
       };
